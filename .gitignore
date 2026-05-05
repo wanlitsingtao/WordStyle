@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+*.egg-info/
+dist/
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 环境变量和敏感信息
+.env
+backend/.env
+.streamlit/secrets.toml
+*.pem
+*.key
+
+# Word 文档（测试文件，体积大）
+*.docx
+*.doc
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+nul
+~$*
+*.tmp
+tmp/
+temp/
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+
+# 用户数据（包含敏感信息）
+user_data.json
+
+# Upload files
+uploads/
+results/
+
+# 备份文件
+*.bak
+*.backup
+
+# Streamlit
+.streamlit/cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Docker
+docker-compose.override.yml
