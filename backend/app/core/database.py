@@ -19,7 +19,7 @@ elif settings.DATABASE_URL.startswith("postgresql"):
     original_url = settings.DATABASE_URL
     if "supabase.co" in original_url and ":5432" in original_url:
         # 提取项目名称（数据库主机名中的标识符）
-        host_part = original_url.split("@")[-1].split("/")[0]
+        host_part = original_url.split("@")[-1].split("/")[0].split(":")[0]  # 去除端口号
         project_id = host_part.replace("db.", "").replace(".supabase.co", "")
         
         # 使用连接池器 URL
