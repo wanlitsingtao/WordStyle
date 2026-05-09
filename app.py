@@ -275,6 +275,20 @@ if 'user_id' not in st.session_state:
         new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
         st.session_state.user_id = new_user_id
         logger.info(f"生成新用户ID: {new_user_id}")
+        
+        # ✅ 修复：立即创建用户记录并领取免费额度，确保持久化
+        from user_manager import claim_free_paragraphs, load_user_data, save_user_data
+        
+        # 先加载用户数据（会创建默认结构）
+        user_data = load_user_data(new_user_id)
+        
+        # 自动领取免费额度
+        free_paragraphs = claim_free_paragraphs(new_user_id)
+        
+        # 保存用户数据（确保持久化）
+        save_user_data(user_data, new_user_id)
+        
+        logger.info(f"新用户 {new_user_id} 已创建并领取 {free_paragraphs} 免费段落")
 
 
 # 新手引导标志
