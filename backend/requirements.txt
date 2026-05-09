@@ -3,7 +3,7 @@ uvicorn[standard]==0.24.0
 pydantic>=2.5.0
 pydantic-settings>=2.1.0
 sqlalchemy>=2.0.23
-# psycopg2-binary==2.9.9  # PostgreSQL 驱动（生产环境需要）
+psycopg2-binary>=2.9.9  # PostgreSQL 驱动（生产环境需要）
 alembic==1.12.1
 pyjwt==2.8.0
 bcrypt==4.1.1
