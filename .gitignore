@@ -9,12 +9,14 @@ develop-eggs/
 *.egg-info/
 dist/
 *.egg
+*.whl
 
 # Virtual Environment
 venv/
 env/
 ENV/
 .venv/
+backend/venv/
 
 # IDE
 .vscode/
@@ -52,14 +54,18 @@ temp/
 
 # 用户数据（包含敏感信息）
 user_data.json
+comments_data.json
+feedback_data.json
 
 # Upload files
 uploads/
 results/
+conversion_results/
 
 # 备份文件
 *.bak
 *.backup
+app.py.*
 
 # Streamlit
 .streamlit/cache/
@@ -75,3 +81,30 @@ htmlcov/
 
 # Docker
 docker-compose.override.yml
+
+# Backend specific
+backend/wordstyle.db
+backend/__pycache__/
+
+# Test and debug files
+test_*.py
+analyze_*.py
+check_*.py
+find_*.py
+debug_*.py
+verify_*.py
+fix_*.py
+
+# Temporary result files
+result_*.docx
+temp_*.docx
+*_err.log
+
+# Conversation backups
+conversation_backup_*.txt
+
+# Screenshots and images (keep only necessary ones)
+*.png
+*.jpg
+*.jpeg
+!personal_qr_code.png

@@ -1,0 +1,149 @@
+# -*- coding: utf-8 -*-
+"""
+WordStyle 集中配置文件
+统一管理所有配置项，避免硬编码和分散配置
+"""
+import os
+from pathlib import Path
+
+# ==================== 基础路径配置 ====================
+BASE_DIR = Path(__file__).parent.absolute()
+RESULTS_DIR = BASE_DIR / "conversion_results"
+DATA_DIR = BASE_DIR / "data"
+
+# 确保目录存在
+RESULTS_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(exist_ok=True)
+
+# ==================== 计费配置 ====================
+# 计费规则：100个段落 = 0.1元
+PARAGRAPH_PRICE = 0.001  # 每个段落的价格（元）
+MIN_RECHARGE = 1.0  # 最低充值金额（元）
+
+# 充值档位
+RECHARGE_PACKAGES = [
+    {'amount': 1, 'paragraphs': 1000, 'label': '体验版'},
+    {'amount': 5, 'paragraphs': 5000, 'label': '标准版'},
+    {'amount': 10, 'paragraphs': 10000, 'label': '专业版'},
+    {'amount': 50, 'paragraphs': 50000, 'label': '企业版'},
+    {'amount': 100, 'paragraphs': 100000, 'label': '旗舰版'},
+]
+
+# ==================== 免费额度配置 ====================
+FREE_PARAGRAPHS_DAILY = 10000  # 每日免费段落数
+
+# ==================== 后端API配置 ====================
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")  # 后端API地址
+
+# ==================== 管理员配置 ====================
+ADMIN_CONTACT = os.getenv("ADMIN_CONTACT", "微信号：your_wechat_id")  # 管理员联系方式
+
+# ==================== 文件配置 ====================
+USER_DATA_FILE = DATA_DIR / "user_data.json"
+COMMENTS_FILE = DATA_DIR / "comments_data.json"
+TASKS_DB_FILE = BASE_DIR / "conversion_tasks.db"
+
+# 文件上传限制
+MAX_FILE_SIZE_MB = 50  # 最大文件大小（MB）
+ALLOWED_EXTENSIONS = ['.docx']  # 允许的文件扩展名
+
+# ==================== 缓存配置 ====================
+CACHE_TTL_SECONDS = 5  # 缓存有效期（秒）
+
+# ==================== 日志配置 ====================
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")  # 日志级别
+LOG_FILE = BASE_DIR / "app.log"  # 日志文件路径
+
+# ==================== 任务清理配置 ====================
+TASK_EXPIRY_DAYS = 7  # 任务过期天数
+CLEANUP_INTERVAL_HOURS = 24  # 清理间隔（小时）
+
+# ==================== 样式映射默认配置 ====================
+DEFAULT_STYLE_MAPPINGS = {
+    'Heading 1': '标题 1',
+    'Heading 2': '标题 2',
+    'Heading 3': '标题 3',
+    'Normal': '正文',
+}
+
+# ==================== 应答句配置 ====================
+DEFAULT_ANSWER_TEXT = "应答：本投标人理解并满足要求。"
+DEFAULT_ANSWER_STYLE = "Normal"
+DEFAULT_ANSWER_MODE = 'before_heading'
+
+ANSWER_MODE_OPTIONS = {
+    'before_heading': '章节前插入',
+    'after_heading': '章节后插入',
+    'copy_chapter': '章节招标原文+应答句+招标原文副本',
+    'before_paragraph': '逐段前应答',
+    'after_paragraph': '逐段后应答'
+}
+
+# ==================== 列表符号配置 ====================
+DEFAULT_LIST_BULLET = "•"
+
+# ==================== 转换配置 ====================
+CONVERTER_STEPS = 7  # 转换器步骤数
+PROGRESS_BASE = 10  # 进度基数
+PROGRESS_MAX = 80  # 进度最大值
+
+# ==================== 安全配置 ====================
+FILENAME_MAX_LENGTH = 200  # 文件名最大长度
+LOCK_TIMEOUT_SECONDS = 10  # 文件锁超时时间
+
+# ==================== UI配置 ====================
+PAGE_TITLE = "标书抄写神器（Beta测试版）"
+PAGE_ICON = "📄"
+LAYOUT = "wide"  # wide 或 centered
+SIDEBAR_STATE = "expanded"  # expanded 或 collapsed
+
+# ==================== 评论系统配置 ====================
+COMMENTS_PER_PAGE = 20  # 每页显示的评论数
+MAX_COMMENT_LENGTH = 500  # 评论最大长度
+
+# ==================== 导出配置 ====================
+def get_config_summary():
+    """获取配置摘要（用于调试）"""
+    return {
+        'PARAGRAPH_PRICE': PARAGRAPH_PRICE,
+        'FREE_PARAGRAPHS_DAILY': FREE_PARAGRAPHS_DAILY,
+        'BACKEND_URL': BACKEND_URL,
+        'ADMIN_CONTACT': ADMIN_CONTACT,
+        'RESULTS_DIR': str(RESULTS_DIR),
+        'TASK_EXPIRY_DAYS': TASK_EXPIRY_DAYS,
+    }
+
+# ==================== 验证配置 ====================
+def validate_config():
+    """验证配置的有效性"""
+    errors = []
+    
+    if PARAGRAPH_PRICE <= 0:
+        errors.append("PARAGRAPH_PRICE 必须大于0")
+    
+    if MIN_RECHARGE <= 0:
+        errors.append("MIN_RECHARGE 必须大于0")
+    
+    if FREE_PARAGRAPHS_DAILY <= 0:
+        errors.append("FREE_PARAGRAPHS_DAILY 必须大于0")
+    
+    if not RESULTS_DIR.exists():
+        try:
+            RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            errors.append(f"无法创建结果目录: {e}")
+    
+    return errors
+
+# 启动时验证配置
+if __name__ == "__main__":
+    errors = validate_config()
+    if errors:
+        print("⚠️ 配置错误:")
+        for error in errors:
+            print(f"  - {error}")
+    else:
+        print("✅ 配置验证通过")
+        print("\n配置摘要:")
+        for key, value in get_config_summary().items():
+            print(f"  {key}: {value}")

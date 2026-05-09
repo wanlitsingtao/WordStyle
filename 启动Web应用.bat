@@ -29,16 +29,28 @@ if errorlevel 1 (
 echo.
 echo 正在启动Web应用...
 echo.
-echo 浏览器将自动打开 http://localhost:8501
-echo 按 Ctrl+C 可以停止服务
+echo 主应用: http://localhost:8501
+echo 管理端: http://localhost:8503
 echo.
 echo ========================================
 echo.
 
-.venv\Scripts\python.exe -m streamlit run app.py --server.headless=true
+REM 启动主应用（后台运行）
+start "" cmd /c ".venv\Scripts\python.exe -m streamlit run app.py --server.port 8501 --server.headless=true"
 
-if errorlevel 1 (
-    echo.
-    echo [错误] 启动失败，请检查错误信息
-    pause
-)
+REM 等待2秒，确保主应用启动
+timeout /t 2 /nobreak >nul
+
+REM 启动管理端（后台运行）
+start "" cmd /c ".venv\Scripts\python.exe -m streamlit run admin_dashboard.py --server.port 8503 --server.headless=true"
+
+echo.
+echo ✅ 两个服务已启动！
+echo    - 主应用: http://localhost:8501
+echo    - 管理端: http://localhost:8503
+echo.
+echo 提示: 关闭此窗口不会停止服务
+echo       需要停止时请关闭所有命令行窗口
+echo.
+
+pause

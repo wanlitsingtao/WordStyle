@@ -1,199 +1,605 @@
-# 部署前检查清单
+# WordStyle 公网部署检查清单
 
-## 📋 准备阶段
+## 📋 使用说明
 
-### 1. 代码准备
-- [ ] 确认 `backend/requirements.txt` 包含所有依赖
-- [ ] 确认根目录 `requirements.txt` 包含Streamlit依赖
-- [ ] 确认 `app.py` 可以正常读取后端URL配置
-- [ ] 确认 `.gitignore` 已排除敏感文件(.env, secrets.toml等)
+本检查清单帮助你系统地完成公网部署，确保不遗漏任何关键步骤。
 
-### 2. 数据库准备(Supabase)
-- [ ] 注册Supabase账号: https://supabase.com
-- [ ] 创建新项目
-- [ ] 记录数据库连接信息(Host, Port, Password)
-- [ ] 执行SQL初始化脚本(见DEPLOYMENT_GUIDE.md)
-- [ ] 创建Storage Bucket: `conversion-results`
-- [ ] 测试数据库连接
-
-### 3. 后端配置
-- [ ] 修改 `backend/app/core/config.py` 支持环境变量
-- [ ] 生成SECRET_KEY (使用 https://randomkeygen.com)
-- [ ] 设置ALLOWED_ORIGINS包含前端域名
-- [ ] 创建 `backend/.env.example` 模板文件
-
-### 4. 前端配置
-- [ ] 创建 `.streamlit/secrets.toml` (从secrets.toml.example复制)
-- [ ] 填写后端API URL
-- [ ] 测试本地连接: `streamlit run app.py`
+**建议：** 每完成一项就勾选，全部完成后再进行测试。
 
 ---
 
-## 🚀 部署阶段
+## 第一阶段：准备工作（预计30分钟）
 
-### 第一步: 部署后端到Render
+### 1.1 注册外部服务账号
 
-#### 1.1 注册与配置
-- [ ] 访问 https://render.com 并注册
-- [ ] 连接GitHub仓库
-- [ ] 点击 "New +" → "Web Service"
+- [ ] **Supabase账号**
+  - [ ] 访问 https://supabase.com
+  - [ ] 使用GitHub登录
+  - [ ] 创建新项目 `wordstyle`
+  - [ ] 选择区域：Singapore
+  - [ ] 设置数据库密码（**务必保存！**）
+  - [ ] 等待项目初始化完成（1-2分钟）
 
-#### 1.2 服务配置
-- [ ] Name: `wordstyle-backend`
-- [ ] Region: `Singapore`
-- [ ] Branch: `main`
-- [ ] Root Directory: `backend`
-- [ ] Runtime: `Python 3`
-- [ ] Build Command: `pip install -r requirements.txt`
-- [ ] Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- [ ] **Render账号**
+  - [ ] 访问 https://render.com
+  - [ ] 使用GitHub登录
+  - [ ] 授权访问代码仓库
 
-#### 1.3 环境变量设置
-在Render Dashboard添加以下环境变量:
-- [ ] `DATABASE_URL`: Supabase连接字符串
-- [ ] `SECRET_KEY`: 随机生成的密钥
-- [ ] `ALLOWED_ORIGINS`: `https://*.streamlit.app`
-- [ ] `DEBUG`: `false`
+- [ ] **Streamlit Cloud账号**
+  - [ ] 访问 https://share.streamlit.io
+  - [ ] 使用GitHub登录
+  - [ ] 授权访问代码仓库
 
-#### 1.4 部署验证
-- [ ] 等待部署完成(约3-5分钟)
-- [ ] 访问健康检查: `https://wordstyle-backend.onrender.com/health`
-- [ ] 访问API文档: `https://wordstyle-backend.onrender.com/docs`
-- [ ] 记录后端URL供前端使用
+- [ ] **UptimeRobot账号**（可选但推荐）
+  - [ ] 访问 https://uptimerobot.com
+  - [ ] 使用邮箱注册
 
 ---
 
-### 第二步: 部署前端到Streamlit Cloud
+### 1.2 获取Supabase关键信息
 
-#### 2.1 注册与配置
-- [ ] 访问 https://share.streamlit.io
-- [ ] 使用GitHub账号登录
-- [ ] 点击 "New app"
+- [ ] **数据库连接字符串**
+  - [ ] Supabase控制台 → Settings → Database
+  - [ ] 找到 "Connection string" → URI标签
+  - [ ] 复制完整字符串
+  - [ ] 格式：`postgresql://postgres:密码@db.xxx.supabase.co:5432/postgres`
+  - [ ] **保存到安全位置**
 
-#### 2.2 应用配置
-- [ ] Repository: 选择你的GitHub仓库
-- [ ] Branch: `main`
-- [ ] Main file path: `app.py`
-- [ ] App URL: `wordstyle-app`(自定义)
-
-#### 2.3 Secrets配置
-在Streamlit Dashboard的Secrets中添加:
-```toml
-[backend]
-url = "https://wordstyle-backend.onrender.com"
-```
-
-#### 2.4 部署验证
-- [ ] 等待部署完成(约2-3分钟)
-- [ ] 访问: `https://wordstyle-app.streamlit.app`
-- [ ] 测试页面加载
-- [ ] 测试后端API连接
+- [ ] **Supabase API信息**
+  - [ ] Supabase控制台 → Settings → API
+  - [ ] 复制 Project URL：`https://xxxxx.supabase.co`
+  - [ ] 复制 anon public key：`eyJhbG...`
+  - [ ] **保存到安全位置**
 
 ---
 
-## ✅ 测试阶段
+### 1.3 初始化Supabase数据库
 
-### 功能测试清单
+- [ ] **执行SQL脚本**
+  - [ ] Supabase控制台 → SQL Editor → New query
+  - [ ] 复制 DEPLOYMENT_UPGRADE_PLAN.md 中的完整SQL脚本
+  - [ ] 粘贴到SQL Editor
+  - [ ] 点击 "Run" 执行
+  - [ ] 确认看到 "Success. No rows returned"
 
-#### 1. 用户认证
-- [ ] 微信扫码登录功能正常
-- [ ] 新用户首次登录获得免费额度
-- [ ] 老用户登录显示正确余额
-- [ ] Token刷新机制正常
+- [ ] **验证表结构**
+  - [ ] 在SQL Editor中执行：
+    ```sql
+    SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';
+    ```
+  - [ ] 确认返回 `table_count = 7`
 
-#### 2. 文档转换
-- [ ] 上传Word文档成功
-- [ ] 转换任务创建成功
-- [ ] 转换进度实时更新
-- [ ] 下载转换结果正常
-- [ ] 余额扣减正确
+- [ ] **验证默认配置**
+  - [ ] 在SQL Editor中执行：
+    ```sql
+    SELECT * FROM system_config;
+    ```
+  - [ ] 确认返回4条配置记录
 
-#### 3. 支付充值(如已集成)
-- [ ] 创建充值订单成功
-- [ ] 显示收款码正常
-- [ ] 上传付款截图成功
-- [ ] 管理员审核后余额更新
-
-#### 4. 错误处理
-- [ ] 网络错误提示友好
-- [ ] 余额不足时阻止转换
-- [ ] 文件格式校验正常
-- [ ] 大文件上传限制生效
-
----
-
-## 🔧 优化阶段
-
-### 性能优化
-- [ ] 配置UptimeRobot保持Render活跃(https://uptimerobot.com)
-- [ ] 设置定期清理过期任务
-- [ ] 启用数据库查询缓存
-- [ ] 压缩上传文件
-
-### 监控配置
-- [ ] Render Dashboard查看日志
-- [ ] Streamlit Dashboard查看使用情况
-- [ ] Supabase查看数据库统计
-- [ ] 配置错误告警(可选)
-
-### 安全加固
-- [ ] 确认HTTPS已启用
-- [ ] 确认SECRET_KEY足够复杂
-- [ ] 确认CORS配置正确
-- [ ] 确认数据库密码强度
-- [ ] 定期更新依赖包
+- [ ] **创建Storage Bucket**
+  - [ ] Supabase控制台 → Storage → New bucket
+  - [ ] 名称：`conversion-results`
+  - [ ] 勾选 "Public bucket"
+  - [ ] 点击 "Create bucket"
+  - [ ] 确认Bucket创建成功
 
 ---
 
-## 📊 上线后维护
+### 1.4 备份本地数据（可选）
 
-### 日常维护
-- [ ] 每周检查服务状态
-- [ ] 每月清理过期数据
-- [ ] 每季度更新依赖包
-- [ ] 备份重要数据
+- [ ] **备份用户数据**
+  ```bash
+  mkdir -p backup_$(date +%Y%m%d_%H%M%S)
+  cp data/user_data.json backup_*/ 2>/dev/null || echo "无用户数据"
+  cp data/comments_data.json backup_*/ 2>/dev/null || echo "无评论数据"
+  ```
 
-### 监控指标
-- [ ] API响应时间 < 500ms
-- [ ] 服务可用性 > 99%
-- [ ] 错误率 < 1%
-- [ ] 用户转化率追踪
-
----
-
-## 🆘 故障排查
-
-### 常见问题速查
-
-**问题1: 后端无法启动**
-- 检查Render Logs
-- 验证DATABASE_URL格式
-- 确认requirements.txt完整
-
-**问题2: 前端无法连接后端**
-- 检查CORS配置
-- 验证ALLOWED_ORIGINS
-- 检查浏览器控制台错误
-
-**问题3: 数据库连接失败**
-- 验证Supabase防火墙设置
-- 检查密码是否正确
-- 确认网络连通性
-
-**问题4: 文件上传失败**
-- 检查文件大小限制
-- 验证Storage权限
-- 查看后端日志
+- [ ] **记录当前配置**
+  - [ ] 记录 config.py 中的关键参数
+  - [ ] 记录 ADMIN_CONTACT 联系方式
 
 ---
 
-## 📞 获取帮助
+## 第二阶段：更新项目配置（预计1小时）
 
-- 部署指南: `DEPLOYMENT_GUIDE.md`
-- API文档: `https://your-backend.onrender.com/docs`
-- Supabase文档: https://supabase.com/docs
-- Render文档: https://render.com/docs
-- Streamlit文档: https://docs.streamlit.io
+### 2.1 配置后端环境变量
+
+- [ ] **复制模板文件**
+  ```bash
+  cd backend
+  cp .env.production.template .env.production
+  ```
+
+- [ ] **编辑 .env.production**
+  - [ ] 填写 DATABASE_URL（从Supabase复制）
+  - [ ] 填写 SUPABASE_URL
+  - [ ] 填写 SUPABASE_KEY
+  - [ ] 生成并填写 SECRET_KEY
+    ```bash
+    python -c "import secrets; print(secrets.token_urlsafe(32))"
+    ```
+  - [ ] 确认 DEBUG=false
+  - [ ] 确认 ALLOWED_ORIGINS 包含 `https://*.streamlit.app`
+
+- [ ] **测试数据库连接**
+  ```bash
+  cd backend
+  python init_supabase.py
+  ```
+  - [ ] 确认看到 "✅ 数据库连接成功"
+  - [ ] 确认看到 "✅ 所有必需的表已存在"
+  - [ ] 确认看到 "✅ 数据库初始化完成！"
 
 ---
 
-**最后更新**: 2026-05-05
+### 2.2 配置前端Secrets
+
+- [ ] **主应用Secrets**
+  ```bash
+  # 在项目根目录
+  cp .streamlit/secrets.toml.template .streamlit/secrets.toml
+  ```
+  - [ ] 编辑 `.streamlit/secrets.toml`
+  - [ ] 填写 backend.url（先留空，等Render部署后填写）
+  - [ ] 填写 supabase.url
+  - [ ] 填写 supabase.key
+  - [ ] 填写 admin.contact
+
+- [ ] **管理后台Secrets**
+  ```bash
+  cp .streamlit/secrets_admin.toml.template .streamlit/secrets_admin.toml
+  ```
+  - [ ] 编辑 `.streamlit/secrets_admin.toml`
+  - [ ] 设置管理员用户名和密码
+  - [ ] **密码建议使用强密码**
+
+- [ ] **确认.gitignore配置**
+  - [ ] 确认 `.gitignore` 包含：
+    ```
+    .env
+    .env.production
+    .streamlit/secrets.toml
+    .streamlit/secrets_admin.toml
+    ```
+
+---
+
+### 2.3 更新依赖文件
+
+- [ ] **检查后端依赖**
+  ```bash
+  cd backend
+  cat requirements.txt
+  ```
+  - [ ] 确认包含 `supabase==2.3.4`
+  - [ ] 确认包含 `psycopg2-binary==2.9.9`
+
+- [ ] **安装依赖测试**
+  ```bash
+  pip install -r requirements.txt
+  ```
+  - [ ] 确认所有依赖安装成功
+  - [ ] 无报错信息
+
+---
+
+### 2.4 提交代码到GitHub
+
+- [ ] **检查更改**
+  ```bash
+  git status
+  ```
+  - [ ] 确认没有提交敏感文件（.env, secrets.toml）
+
+- [ ] **提交代码**
+  ```bash
+  git add .
+  git commit -m "准备公网部署：更新配置文件和初始化脚本"
+  git push origin main
+  ```
+
+- [ ] **验证推送**
+  - [ ] 访问GitHub仓库
+  - [ ] 确认最新提交已推送
+
+---
+
+## 第三阶段：部署后端到Render（预计40分钟）
+
+### 3.1 创建Web Service
+
+- [ ] **连接仓库**
+  - [ ] Render控制台 → Dashboard → New + → Web Service
+  - [ ] Connect a repository
+  - [ ] 选择 WordStyle 仓库
+  - [ ] 点击 Connect
+
+- [ ] **配置服务参数**
+  - [ ] Name: `wordstyle-backend`
+  - [ ] Region: Singapore
+  - [ ] Branch: main
+  - [ ] Root Directory: `backend`
+  - [ ] Runtime: Python 3
+
+- [ ] **配置构建命令**
+  - [ ] Build Command: `pip install -r requirements.txt`
+  - [ ] Start Command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+
+- [ ] **配置健康检查**
+  - [ ] 点击 Advanced
+  - [ ] Health Check Path: `/health`
+
+---
+
+### 3.2 配置环境变量
+
+逐个添加以下环境变量（点击 Add Environment Variable）：
+
+- [ ] **DATABASE_URL**
+  - Key: `DATABASE_URL`
+  - Value: `postgresql://postgres:密码@db.xxx.supabase.co:5432/postgres`
+
+- [ ] **SECRET_KEY**
+  - Key: `SECRET_KEY`
+  - Value: [之前生成的随机密钥]
+
+- [ ] **ALLOWED_ORIGINS**
+  - Key: `ALLOWED_ORIGINS`
+  - Value: `https://*.streamlit.app,http://localhost:8501`
+
+- [ ] **SUPABASE_URL**
+  - Key: `SUPABASE_URL`
+  - Value: `https://xxxxx.supabase.co`
+
+- [ ] **SUPABASE_KEY**
+  - Key: `SUPABASE_KEY`
+  - Value: `eyJhbG...`
+
+- [ ] **DEBUG**
+  - Key: `DEBUG`
+  - Value: `false`
+
+- [ ] **UPLOAD_DIR**
+  - Key: `UPLOAD_DIR`
+  - Value: `/tmp/uploads`
+
+- [ ] **保存配置**
+  - [ ] 点击 Save Changes
+
+---
+
+### 3.3 等待部署完成
+
+- [ ] **监控部署日志**
+  - [ ] 切换到 Logs 标签
+  - [ ] 观察实时日志输出
+  - [ ] 等待看到 "Application startup complete"
+  - [ ] 大约需要3-5分钟
+
+- [ ] **处理部署错误**（如果有）
+  - [ ] 查看错误日志
+  - [ ] 根据 DEPLOYMENT_UPGRADE_PLAN.md 故障排查部分解决
+  - [ ] 修复后点击 Manual Deploy 重新部署
+
+---
+
+### 3.4 测试后端
+
+- [ ] **健康检查**
+  - [ ] 浏览器访问：`https://wordstyle-backend.onrender.com/health`
+  - [ ] 确认返回：`{"status":"healthy"}`
+
+- [ ] **API文档**
+  - [ ] 浏览器访问：`https://wordstyle-backend.onrender.com/docs`
+  - [ ] 确认看到Swagger UI界面
+
+- [ ] **测试数据库连接**
+  - [ ] 在API文档中找到 GET /api/admin/stats
+  - [ ] 点击 "Try it out" → "Execute"
+  - [ ] 确认返回统计数据（不是错误）
+
+- [ ] **记录后端URL**
+  - [ ] 复制后端地址（如：`https://wordstyle-backend.onrender.com`）
+  - [ ] 下一步要用
+
+---
+
+## 第四阶段：部署前端到Streamlit Cloud（预计30分钟）
+
+### 4.1 更新前端Secrets
+
+- [ ] **更新主应用Secrets**
+  - [ ] 编辑 `.streamlit/secrets.toml`
+  - [ ] 填写 backend.url 为Render后端地址
+  - [ ] 再次确认supabase配置正确
+
+- [ ] **提交更改**（如果需要）
+  ```bash
+  git add .streamlit/secrets.toml.template
+  git commit -m "更新Secrets模板"
+  git push
+  ```
+  **注意：** 不要提交实际的 secrets.toml 文件！
+
+---
+
+### 4.2 部署主应用
+
+- [ ] **创建应用**
+  - [ ] Streamlit Cloud → New app
+  - [ ] Repository: 选择 WordStyle 仓库
+  - [ ] Branch: main
+  - [ ] Main file path: `app.py`
+  - [ ] App URL: `wordstyle-app`（可自定义）
+  - [ ] 点击 Deploy!
+
+- [ ] **配置Secrets**
+  - [ ] 部署开始后，点击 Settings
+  - [ ] 找到 Secrets 部分
+  - [ ] 点击 Edit secrets
+  - [ ] 粘贴以下内容（修改为实际值）：
+    ```toml
+    [backend]
+    url = "https://wordstyle-backend.onrender.com"
+    
+    [supabase]
+    url = "https://xxxxx.supabase.co"
+    key = "eyJhbG..."
+    
+    [admin]
+    contact = "微信号：your_wechat_id"
+    ```
+  - [ ] 点击 Save
+
+- [ ] **等待部署完成**
+  - [ ] 返回 Manage app 标签
+  - [ ] 查看部署日志
+  - [ ] 等待 "Successfully deployed!"
+  - [ ] 大约2-3分钟
+
+---
+
+### 4.3 部署管理后台
+
+- [ ] **创建独立应用**
+  - [ ] Streamlit Cloud → New app
+  - [ ] Repository: 选择 WordStyle 仓库
+  - [ ] Branch: main
+  - [ ] Main file path: `admin_web.py`
+  - [ ] App URL: `wordstyle-admin`（可自定义）
+  - [ ] 点击 Deploy!
+
+- [ ] **配置Secrets**
+  - [ ] Settings → Secrets → Edit secrets
+  - [ ] 粘贴：
+    ```toml
+    [backend]
+    url = "https://wordstyle-backend.onrender.com"
+    
+    [admin]
+    username = "admin"
+    password = "your_secure_password"
+    ```
+  - [ ] 点击 Save
+
+- [ ] **等待部署完成**
+  - [ ] 查看部署日志
+  - [ ] 等待 "Successfully deployed!"
+
+---
+
+## 第五阶段：测试与验证（预计30分钟）
+
+### 5.1 访问应用
+
+- [ ] **主应用**
+  - [ ] 浏览器访问：`https://wordstyle-app.streamlit.app`
+  - [ ] 确认页面正常加载
+
+- [ ] **管理后台**
+  - [ ] 浏览器访问：`https://wordstyle-admin.streamlit.app`
+  - [ ] 确认页面正常加载
+
+- [ ] **后端API**
+  - [ ] 浏览器访问：`https://wordstyle-backend.onrender.com/docs`
+  - [ ] 确认API文档可访问
+
+---
+
+### 5.2 功能测试
+
+#### 主应用测试
+
+- [ ] **用户登录**
+  - [ ] 显示微信扫码登录按钮
+  - [ ] 模拟扫码后显示用户信息
+  - [ ] 显示剩余段落数（10000）
+
+- [ ] **文档转换**
+  - [ ] 上传测试Word文档
+  - [ ] 点击"开始转换"
+  - [ ] 转换进度正常显示
+  - [ ] 下载转换结果成功
+
+- [ ] **数据持久化**
+  - [ ] 刷新页面（F5）
+  - [ ] 确认转换历史已保存
+  - [ ] 确认剩余段落已扣减
+
+- [ ] **其他功能**
+  - [ ] 评论区正常显示
+  - [ ] 提交反馈功能正常
+  - [ ] 充值页面可访问
+
+---
+
+#### 管理后台测试
+
+- [ ] **管理员登录**
+  - [ ] 输入用户名和密码
+  - [ ] 登录成功
+
+- [ ] **数据看板**
+  - [ ] 显示用户总数
+  - [ ] 显示任务总数
+  - [ ] 显示收入统计
+
+- [ ] **用户管理**
+  - [ ] 用户列表正常加载
+  - [ ] 可以查看用户详情
+
+- [ ] **任务监控**
+  - [ ] 任务列表实时更新
+  - [ ] 可以看到任务状态
+
+- [ ] **系统配置**
+  - [ ] 可以修改配置参数
+  - [ ] 修改后生效
+
+---
+
+### 5.3 API连接测试
+
+- [ ] **打开开发者工具**
+  - [ ] 浏览器按 F12
+  - [ ] 切换到 Network 标签
+
+- [ ] **执行操作**
+  - [ ] 在主应用执行一次转换
+  - [ ] 观察Network请求
+
+- [ ] **检查结果**
+  - [ ] 无CORS错误
+  - [ ] API响应时间 < 3秒
+  - [ ] 所有请求状态码为200或201
+
+---
+
+### 5.4 压力测试（可选）
+
+- [ ] **并发测试**
+  - [ ] 打开3-5个浏览器窗口
+  - [ ] 同时执行转换操作
+  - [ ] 确认无异常
+
+- [ ] **长时间运行**
+  - [ ] 保持页面打开30分钟
+  - [ ] 确认无内存泄漏
+  - [ ] 确认可正常操作
+
+---
+
+## 第六阶段：后续优化（预计20分钟）
+
+### 6.1 配置UptimeRobot
+
+- [ ] **添加监控**
+  - [ ] UptimeRobot控制台 → Add New Monitor
+  - [ ] Monitor Type: HTTP(s)
+  - [ ] Friendly Name: WordStyle Backend
+  - [ ] URL: `https://wordstyle-backend.onrender.com/health`
+  - [ ] Monitoring Interval: Every 5 minutes
+  - [ ] 点击 Create Monitor
+
+- [ ] **验证监控**
+  - [ ] 等待5分钟
+  - [ ] 确认Monitor状态为 "Up"
+  - [ ] 确认收到第一封监控邮件（可选）
+
+---
+
+### 6.2 监控与日志配置
+
+- [ ] **后端日志**
+  - [ ] 访问 Render Dashboard
+  - [ ] 查看 Logs 标签
+  - [ ] 确认日志正常记录
+
+- [ ] **前端日志**
+  - [ ] 访问 Streamlit Dashboard
+  - [ ] 查看应用日志
+  - [ ] 确认无错误
+
+- [ ] **数据库监控**
+  - [ ] Supabase控制台 → Database
+  - [ ] 查看数据库使用情况
+  - [ ] 确认资源充足
+
+---
+
+### 6.3 文档整理
+
+- [ ] **记录关键信息**
+  - [ ] 后端URL
+  - [ ] 前端URL
+  - [ ] 管理后台URL
+  - [ ] Supabase项目ID
+  - [ ] 管理员账号密码（保存在密码管理器）
+
+- [ ] **备份配置文件**
+  - [ ] 备份 .env.production（离线存储）
+  - [ ] 备份 secrets.toml（离线存储）
+
+- [ ] **更新README**
+  - [ ] 添加公网访问地址
+  - [ ] 添加部署说明链接
+
+---
+
+## ✅ 最终确认
+
+### 部署完成确认
+
+- [ ] 所有检查项已完成
+- [ ] 所有功能测试通过
+- [ ] 无已知Bug
+- [ ] 监控已配置
+- [ ] 文档已整理
+
+### 分享应用
+
+- [ ] 主应用地址：`https://wordstyle-app.streamlit.app`
+- [ ] 管理后台地址：`https://wordstyle-admin.streamlit.app`
+- [ ] 后端API地址：`https://wordstyle-backend.onrender.com`
+
+### 下一步计划
+
+**立即执行：**
+- [ ] 分享给朋友试用
+- [ ] 收集用户反馈
+- [ ] 每天检查服务状态
+
+**一周内：**
+- [ ] 修复发现的Bug
+- [ ] 优化用户体验
+- [ ] 根据反馈调整功能
+
+**一个月内：**
+- [ ] 评估是否需要升级付费方案
+- [ ] 集成真实微信支付
+- [ ] 添加更多高级功能
+
+---
+
+## 📞 遇到问题？
+
+### 快速排查
+
+1. **后端部署失败** → 查看 Render Logs
+2. **前端无法连接** → 检查 secrets.toml 和 CORS 配置
+3. **数据库连接失败** → 检查 DATABASE_URL 格式
+4. **文件上传失败** → 检查 Supabase Storage Bucket
+
+### 详细指南
+
+参考 `DEPLOYMENT_UPGRADE_PLAN.md` 中的故障排查章节。
+
+---
+
+**部署日期**: _______________  
+**部署人员**: _______________  
+**备注**: _______________
+
+---
+
+**恭喜完成部署！** 🎉

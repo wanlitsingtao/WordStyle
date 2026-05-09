@@ -285,7 +285,7 @@ def show_user_management():
             with col3:
                 new_balance = st.number_input(
                     "调整余额",
-                    value=data.get('balance', 0),
+                    value=float(data.get('balance', 0)),  # 确保是float类型
                     step=1.0,
                     key=f"balance_{user_id}"
                 )
@@ -614,12 +614,6 @@ def show_system_config():
         with open(config_file, 'w', encoding='utf-8') as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
         st.success("✅ 配置已保存！")
-    
-    st.markdown("---")
-    
-    # 充值档位配置
-    st.subheader("💳 充值档位设置")
-    st.info("充值档位请在 app.py 中的 RECHARGE_PACKAGES 变量中修改")
     
     st.markdown("---")
     

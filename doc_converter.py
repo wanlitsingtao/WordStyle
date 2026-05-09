@@ -288,7 +288,9 @@ class DocumentConverter:
     
     def get_target_style(self, original_style_name, template_doc, source_file=""):
         """获取目标样式名称"""
-        target = STYLE_MAP.get(original_style_name)
+        # 使用实例变量中的样式映射，避免使用全局变量
+        style_map = getattr(self, 'current_style_map', STYLE_MAP)
+        target = style_map.get(original_style_name)
         if target is not None:
             try:
                 template_doc.styles[target]
@@ -469,6 +471,22 @@ class DocumentConverter:
                 new_para.style = target_doc.styles['Normal']
             return new_para
     
+    def extract_and_add_images(self, source_para, new_para, page_width_emu, available_width_emu):
+        """从源段落提取图片并添加到新段落（DRY原则：避免代码重复）"""
+        for run in source_para.runs:
+            blips = run._element.findall('.//' + qn('a:blip'))
+            for blip in blips:
+                rId = blip.get(qn('r:embed'))
+                if rId:
+                    try:
+                        img_part = source_para.part.related_parts[rId]
+                        img_bytes = img_part.blob
+                        emu_w, emu_h = self.get_image_extent(blip)
+                        pic_run = new_para.add_run()
+                        self.add_picture(pic_run, img_bytes, page_width_emu, available_width_emu, emu_w, emu_h)
+                    except Exception:
+                        pass
+    
     def copy_paragraph_with_images(self, source_para, target_doc, target_style_name,
                                    page_width_emu, available_width_emu, para_idx, source_file="",
                                    warning_callback=None):
@@ -606,19 +624,8 @@ class DocumentConverter:
             cleaned_text = self.remove_manual_numbering(full_text)
             new_para.clear()
             new_para.add_run(cleaned_text)
-            for run_idx, run in enumerate(source_para.runs):
-                blips = run._element.findall('.//' + qn('a:blip'))
-                for blip in blips:
-                    rId = blip.get(qn('r:embed'))
-                    if rId:
-                        try:
-                            img_part = source_para.part.related_parts[rId]
-                            img_bytes = img_part.blob
-                            emu_w, emu_h = self.get_image_extent(blip)
-                            pic_run = new_para.add_run()
-                            self.add_picture(pic_run, img_bytes, page_width_emu, available_width_emu, emu_w, emu_h)
-                        except Exception:
-                            pass
+            # ⚡ 使用统一的图片处理方法
+            self.extract_and_add_images(source_para, new_para, page_width_emu, available_width_emu)
             return new_para
         
         if self.has_numbering(source_para):
@@ -629,38 +636,17 @@ class DocumentConverter:
             cleaned_text = clean_list_numbering(full_text)
             if cleaned_text:
                 new_para.add_run(cleaned_text)
-            for run_idx, run in enumerate(source_para.runs):
-                blips = run._element.findall('.//' + qn('a:blip'))
-                for blip in blips:
-                    rId = blip.get(qn('r:embed'))
-                    if rId:
-                        try:
-                            img_part = source_para.part.related_parts[rId]
-                            img_bytes = img_part.blob
-                            emu_w, emu_h = self.get_image_extent(blip)
-                            pic_run = new_para.add_run()
-                            self.add_picture(pic_run, img_bytes, page_width_emu, available_width_emu, emu_w, emu_h)
-                        except Exception:
-                            pass
+            # ⚡ 使用统一的图片处理方法
+            self.extract_and_add_images(source_para, new_para, page_width_emu, available_width_emu)
             return new_para
         
-        for run_idx, run in enumerate(source_para.runs):
-            blips = run._element.findall('.//' + qn('a:blip'))
-            if blips:
-                for blip in blips:
-                    rId = blip.get(qn('r:embed'))
-                    if rId:
-                        try:
-                            img_part = source_para.part.related_parts[rId]
-                            img_bytes = img_part.blob
-                            emu_w, emu_h = self.get_image_extent(blip)
-                            pic_run = new_para.add_run()
-                            self.add_picture(pic_run, img_bytes, page_width_emu, available_width_emu, emu_w, emu_h)
-                        except Exception:
-                            pass
-            else:
-                if run.text:
-                    new_para.add_run(run.text)
+        # 普通段落：复制文本和图片
+        for run in source_para.runs:
+            if run.text:
+                new_para.add_run(run.text)
+        
+        # ⚡ 使用统一的图片处理方法
+        self.extract_and_add_images(source_para, new_para, page_width_emu, available_width_emu)
         
         return new_para
     
@@ -818,7 +804,7 @@ class DocumentConverter:
         return new_table
     
     def convert_styles(self, source_file, template_file, output_file, custom_style_map=None, list_bullet=None,
-                       warning_callback=None):
+                       warning_callback=None, source_styles_cache=None):
         """
         样式转换主函数
         :param source_file: 源文件路径
@@ -827,11 +813,16 @@ class DocumentConverter:
         :param custom_style_map: 自定义样式映射表（可选）
         :param list_bullet: 列表段落符号（可选，默认为配置常量）
         :param warning_callback: 警告回调函数 callback(message)
+        :param source_styles_cache: 缓存的源文件样式列表（可选，避免重复分析）
         :return: 是否成功
         """
-        global STYLE_MAP
+        # 使用局部样式映射副本，避免修改全局变量
+        style_map = STYLE_MAP.copy()
         if custom_style_map:
-            STYLE_MAP.update(custom_style_map)
+            style_map.update(custom_style_map)
+        
+        # 将样式映射存储为实例变量，供get_target_style使用
+        self.current_style_map = style_map
         
         # 设置列表符号
         if list_bullet is not None:
@@ -860,7 +851,12 @@ class DocumentConverter:
                 if outline_check is not None:
                     val_check = outline_check.get(qn('w:val'))
         
-        self.source_styles = self.get_all_styles_from_doc(source_doc)
+        # ⚡ 性能优化：使用缓存的样式列表，避免重复分析
+        if source_styles_cache:
+            self.source_styles = source_styles_cache
+        else:
+            # 如果没有缓存，重新分析（兜底逻辑）
+            self.source_styles = self.get_all_styles_from_doc(source_doc)
         
         new_doc = Document(template_file)
         self.clear_document_content(new_doc)
@@ -1097,15 +1093,6 @@ class DocumentConverter:
         if pStyle is None:
             return None
         return pStyle.get(qn('w:val'))
-    
-    def is_heading_paragraph(self, elem):
-        """判断是否为标题段落"""
-        if not hasattr(elem, 'tag'):
-            return False
-        if elem.tag != qn('w:p'):
-            return False
-        style_id = self.get_style_id(elem)
-        return style_id in HEADING_STYLE_IDS
     
     def is_plain_paragraph(self, elem):
         """判断是否为无样式的普通正文段落"""
@@ -1906,7 +1893,8 @@ class DocumentConverter:
                      answer_text=None, answer_style=None,
                      list_bullet=None, do_answer_insertion=True,
                      answer_mode='before_heading',
-                     progress_callback=None, warning_callback=None):
+                     progress_callback=None, warning_callback=None,
+                     source_styles_cache=None):
         """
         完整转换流程：样式转换 -> 语气转换 -> 插入应答句
         固定为7个步骤，跳过的步骤也会计入进度
@@ -1924,6 +1912,7 @@ class DocumentConverter:
             - 'after_heading': 章节后插入（在章节正文最后一段后插入）
         :param progress_callback: 进度回调函数 callback(step, message)
         :param warning_callback: 警告回调函数 callback(message)
+        :param source_styles_cache: 缓存的源文件样式列表（可选，避免重复分析）
         :return: (success, actual_output_file, message)
         """
         # 固定7个步骤，确保进度条能正确填满
@@ -1933,7 +1922,7 @@ class DocumentConverter:
         # 步骤1：样式转换
         temp_file_1 = output_file.rsplit('.', 1)[0] + "_temp1.docx"
         success, msg = self.convert_styles(source_file, template_file, temp_file_1, custom_style_map, list_bullet,
-                                           warning_callback)
+                                           warning_callback, source_styles_cache)
         if not success:
             return False, output_file, f"样式转换失败: {msg}"
         
