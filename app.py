@@ -1175,6 +1175,37 @@ if not do_answer:
 # 开始转换按钮
 st.markdown("---")
 
+# ✅ 修复：显示最近的转换结果（防止刷新后丢失）
+if 'recent_results' in st.session_state and st.session_state.recent_results:
+    st.subheader("📥 最近转换结果")
+    st.info("ℹ️ **提示：** 转换完成的文件将保留 7 天，过期后会自动清理。请及时下载您需要的文件。")
+    
+    # 显示所有最近的结果文件
+    for idx, file_info in enumerate(st.session_state.recent_results):
+        if os.path.exists(file_info['path']):
+            with open(file_info['path'], 'rb') as f:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.download_button(
+                        label=f"📥 下载: {file_info['name']}",
+                        data=f.read(),
+                        file_name=file_info['name'],
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        use_container_width=True,
+                        key=f"download_recent_{idx}"
+                    )
+                with col2:
+                    st.caption(f"转换时间: {file_info['time']}")
+        else:
+            st.warning(f"⚠️ 文件已过期或不存在: {file_info['name']}")
+    
+    # 提供清空按钮
+    if st.button("🗑️ 清空结果列表", key="clear_results_btn"):
+        st.session_state.recent_results = []
+        st.rerun()
+    
+    st.markdown("---")
+
 # 检查是否有进行中的任务
 active_task = has_active_task(st.session_state.user_id)
 
@@ -1414,6 +1445,20 @@ else:
                     # 保存用户数据
                     save_user_data(user_data)
                     
+                    # ✅ 修复：将转换结果文件路径保存到 session_state，防止刷新后丢失
+                    if 'recent_results' not in st.session_state:
+                        st.session_state.recent_results = []
+                    
+                    # 添加本次转换的结果文件
+                    for output_file in output_files:
+                        if os.path.exists(output_file):
+                            file_info = {
+                                'path': output_file,
+                                'name': os.path.basename(output_file),
+                                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            }
+                            st.session_state.recent_results.append(file_info)
+                    
                     # 重置转换标志
                     st.session_state.is_converting = False
                     
@@ -1422,19 +1467,7 @@ else:
                     if fail_count > 0:
                         st.warning(f"⚠️ 有 {fail_count} 个文件转换失败，未收取费用")
                     st.info(f"消耗 {total_success_paragraphs:,} 个段落（¥{actual_cost:.2f}）")
-                    
-                    # 提供下载
-                    for output_file in output_files:
-                        if os.path.exists(output_file):
-                            with open(output_file, 'rb') as f:
-                                file_name = os.path.basename(output_file)
-                                st.download_button(
-                                    label=f"📥 下载: {file_name}",
-                                    data=f.read(),
-                                    file_name=file_name,
-                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                    use_container_width=True
-                                )
+                    st.info("💡 请在上方「最近转换结果」区域下载文件")
         
             except Exception as e:
                 # 重置转换标志
