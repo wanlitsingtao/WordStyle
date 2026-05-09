@@ -219,42 +219,9 @@ def show_history_dialog():
 # 参见：config.py, utils.py, user_manager.py, comments_manager.py
 # ==================== 初始化会话状态 ====================
 # 使用稳定的用户ID，防止刷新页面后重新领取免费额度
-# 策略1：优先从 localStorage 持久化的用户ID（关机重启也有效）
-# 策略2：从 user_data.json 中查找最近使用的用户（兜底方案）
+# 策略：优先从 user_data.json 中查找最近使用的用户（最可靠）
 
 if 'user_id' not in st.session_state:
-    # 尝试从 localStorage 获取用户ID（通过隐藏组件）
-    import streamlit.components.v1 as components
-    
-    # 创建隐藏的 HTML 组件来读取 localStorage
-    # 注意：这个组件会在页面加载时执行，将用户ID写入 sessionStorage
-    js_init_code = """
-    <script>
-        (function() {
-            // 检查是否已有持久化的用户ID
-            let userId = localStorage.getItem('wordstyle_user_id');
-            if (!userId) {
-                // 生成新的用户ID并持久化
-                userId = 'user_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 9);
-                localStorage.setItem('wordstyle_user_id', userId);
-                console.log('[WordStyle] Generated new user ID:', userId);
-            } else {
-                console.log('[WordStyle] Using existing user ID:', userId);
-            }
-            
-            // 将用户ID存储到全局变量，供后续读取
-            window.wordstyle_user_id = userId;
-        })();
-    </script>
-    """
-    
-    try:
-        # 执行初始化脚本（设置 localStorage）
-        components.html(js_init_code, height=0, width=0)
-    except:
-        pass
-    
-    # 由于无法直接从 JavaScript 同步获取返回值，我们使用兜底方案
     # 从 user_data.json 中查找最近使用的用户
     data_file = Path("user_data.json")
     existing_user_id = None
@@ -277,48 +244,37 @@ if 'user_id' not in st.session_state:
                                 existing_user_id = uid
                                 break
                     
-                    # 优先级3：如果都没有，找余额不为默认值的用户
+                    # 优先级3：如果都没有，找余额不为0的用户（排除刚初始化的10000免费额度）
                     if not existing_user_id:
                         for uid, udata in all_data.items():
-                            if udata.get('paragraphs_remaining', 0) > 0 and udata.get('paragraphs_remaining', 0) != 10000:
+                            remaining = udata.get('paragraphs_remaining', 0)
+                            # 排除默认值0和刚领取的10000，找真正使用过的用户
+                            if remaining > 0 and remaining != FREE_PARAGRAPHS_DAILY:
                                 existing_user_id = uid
                                 break
-        except:
+        except Exception as e:
+            logger.error(f"读取用户数据失败: {e}")
             pass
     
     if existing_user_id:
         # 使用已存在的用户ID
         st.session_state.user_id = existing_user_id
-        # 同步更新 localStorage（确保一致性）
-        try:
-            sync_js = f"""
-            <script>
-                localStorage.setItem('wordstyle_user_id', '{existing_user_id}');
-                console.log('[WordStyle] Synced user ID to localStorage:', '{existing_user_id}');
-            </script>
-            """
-            components.html(sync_js, height=0, width=0)
-        except:
-            pass
+        logger.info(f"恢复已有用户ID: {existing_user_id}")
     else:
-        # 生成新的用户ID
+        # 生成新的用户ID（基于固定种子，确保稳定性）
         import hashlib
-        import time
-        unique_key = f"{time.time()}_{id(st.session_state)}"
+        import socket
+        
+        # 使用机器标识 + 固定前缀生成稳定的用户ID
+        try:
+            hostname = socket.gethostname()
+        except:
+            hostname = "default"
+        
+        unique_key = f"wordstyle_{hostname}_first_user"
         new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
         st.session_state.user_id = new_user_id
-        
-        # 保存到 localStorage
-        try:
-            save_js = f"""
-            <script>
-                localStorage.setItem('wordstyle_user_id', '{new_user_id}');
-                console.log('[WordStyle] Saved new user ID to localStorage:', '{new_user_id}');
-            </script>
-            """
-            components.html(save_js, height=0, width=0)
-        except:
-            pass
+        logger.info(f"生成新用户ID: {new_user_id}")
 
 
 # 新手引导标志

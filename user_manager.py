@@ -75,14 +75,31 @@ def file_lock(file_path, timeout=LOCK_TIMEOUT_SECONDS):
 
 
 def generate_user_id():
-    """生成稳定的用户ID"""
+    """
+    生成稳定的用户ID
+    注意：此函数仅在 app.py 初始化时调用一次
+    实际使用时应该从 st.session_state.user_id 获取
+    """
     import streamlit as st
     
-    if 'user_id' not in st.session_state:
-        unique_key = f"{time.time()}_{id(st.session_state)}"
-        st.session_state.user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
+    # 如果 session_state 中已有 user_id，直接返回
+    if 'user_id' in st.session_state:
+        return st.session_state.user_id
     
-    return st.session_state.user_id
+    # 否则生成一个基于固定种子的 ID（仅用于首次初始化）
+    import hashlib
+    import socket
+    
+    try:
+        hostname = socket.gethostname()
+    except:
+        hostname = "default"
+    
+    unique_key = f"wordstyle_{hostname}_first_user"
+    user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
+    st.session_state.user_id = user_id
+    
+    return user_id
 
 
 # ==================== 缓存优化 ====================
