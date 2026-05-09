@@ -7,9 +7,13 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # 创建数据库引擎
 connect_args = {}
+final_url = settings.DATABASE_URL
 
 if settings.DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
@@ -23,18 +27,16 @@ elif settings.DATABASE_URL.startswith("postgresql"):
         project_id = host_part.replace("db.", "").replace(".supabase.co", "")
         
         # 使用连接池器 URL
-        pooler_url = original_url.replace(
+        final_url = original_url.replace(
             f"db.{project_id}.supabase.co:5432",
             f"aws-0-ap-southeast-1.pooler.supabase.com:6543"
         )
-        print(f"✅ 检测到 Supabase 直接连接，自动切换为连接池器")
-        print(f"   原始 URL: {original_url[:60]}...")
-        print(f"   池化 URL: {pooler_url[:60]}...")
-        
-        # 更新数据库 URL
-        settings.DATABASE_URL = pooler_url
+        logger.info(f"✅ 检测到 Supabase 直接连接，自动切换为连接池器")
+        logger.info(f"   原始 URL: {original_url[:60]}...")
+        logger.info(f"   池化 URL: {final_url[:60]}...")
 
-engine = create_engine(settings.DATABASE_URL, connect_args=connect_args)
+logger.info(f"🔗 数据库引擎创建 - URL: {final_url[:60]}...")
+engine = create_engine(final_url, connect_args=connect_args)
 
 # 创建会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
