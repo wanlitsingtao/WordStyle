@@ -13,9 +13,16 @@ from typing import Optional
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
 
 from app.core.database import engine, get_db
-from app.models import User, ConversionTask, Order, SystemConfig
+from app.models import User, ConversionTask, Order, SystemConfig, Base
 from sqlalchemy import text, func, desc
 from sqlalchemy.orm import Session
+
+# ==================== 自动初始化数据库表 ====================
+try:
+    Base.metadata.create_all(bind=engine)
+    print("✅ 数据库表已就绪")
+except Exception as e:
+    print(f"⚠️ 数据库表初始化警告: {e}")
 
 # ==================== 页面配置 ====================
 st.set_page_config(
