@@ -485,15 +485,23 @@ elif DATA_SOURCE == "api":
     else:
         print(f" 数据访问层初始化：API 模式 (后端: {BACKEND_URL})")
         
-        def _make_api_request(endpoint: str, params: dict = None) -> dict:
-            """发送 API 请求到后端"""
+        def _make_api_request(endpoint: str, params: dict = None, method: str = "get", json: dict = None) -> dict:
+            """发送 API 请求到后端（支持 GET/POST/PUT）"""
             try:
                 url = f"{BACKEND_URL}/api/admin{endpoint}"
-                response = requests.get(url, params=params, timeout=10)
+                if method.lower() == "get":
+                    response = requests.get(url, params=params, timeout=10)
+                elif method.lower() == "post":
+                    response = requests.post(url, json=json, timeout=10)
+                elif method.lower() == "put":
+                    response = requests.put(url, json=json, timeout=10)
+                else:
+                    response = requests.get(url, params=params, timeout=10)
+                        
                 response.raise_for_status()
                 return response.json()
             except Exception as e:
-                print(f"️ API 请求失败: {endpoint} - {e}")
+                print(f"️ API 请求失败: {method.upper()} {endpoint} - {e}")
                 return {}
         
         def _load_user(user_id: str) -> Dict[str, Any]:
@@ -504,7 +512,9 @@ elif DATA_SOURCE == "api":
         
         def _save_user(user_data: Dict[str, Any], user_id: str = None):
             """保存用户数据到 API"""
-            pass  # API 模式下不通过此接口保存
+            if user_id:
+                return _make_api_request(f"/users/{user_id}", method="post", json=user_data)
+            return {}
         
         def _load_all_users() -> List[Dict[str, Any]]:
             """从 API 加载所有用户"""
@@ -513,12 +523,15 @@ elif DATA_SOURCE == "api":
         
         def _register_user(user_id: str, user_data: Dict[str, Any]):
             """注册用户（API 模式）"""
-            # 注册由主应用处理
-            pass
+            return _save_user(user_data, user_id)
         
         def _claim_free(user_id=None):
             """领取免费段落（API 模式）"""
-            pass
+            if user_id:
+                result = _make_api_request(f"/users/{user_id}/claim-free", method="post")
+                if result.get('success'):
+                    return result.get('paragraphs', 0)
+            return 0
         
         def _recharge_user(amount, package_label, user_id=None):
             """充值用户（API 模式）"""
@@ -526,7 +539,10 @@ elif DATA_SOURCE == "api":
         
         def _deduct_paragraphs(paragraphs, user_id=None):
             """扣除段落（API 模式）"""
-            pass
+            if user_id:
+                result = _make_api_request(f"/users/{user_id}/deduct", method="post", json={"paragraphs": paragraphs})
+                return result.get('success', False)
+            return False
         
         def _add_conversion_record(files_count, success_count, failed_count, user_id=None):
             """添加转换记录（API 模式）"""
@@ -543,19 +559,34 @@ elif DATA_SOURCE == "api":
         
         def _create_task(task_id, user_id, filename, file_count=1, paragraphs=0, cost=0.0):
             """创建任务（API 模式）"""
-            pass
+            task_data = {
+                'task_id': task_id,
+                'user_id': user_id,
+                'filename': filename,
+                'paragraphs': paragraphs,
+                'cost': cost
+            }
+            result = _make_api_request("/tasks", method="post", json=task_data)
+            return task_id if result.get('success') else None
         
         def _update_task_status(task_id, status, progress=None, error_message=None):
             """更新任务状态（API 模式）"""
-            pass
+            status_data = {'status': status}
+            if progress is not None:
+                status_data['progress'] = progress
+            if error_message is not None:
+                status_data['error_message'] = error_message
+            
+            result = _make_api_request(f"/tasks/{task_id}", method="put", json=status_data)
+            return result.get('success', False)
         
         def _complete_task(task_id):
             """完成任务（API 模式）"""
-            pass
+            return _update_task_status(task_id, 'COMPLETED', progress=100)
         
         def _fail_task(task_id, error_message=""):
             """标记任务失败（API 模式）"""
-            pass
+            return _update_task_status(task_id, 'FAILED', error_message=error_message)
         
         def _get_all_tasks(status_filter=None, limit=100, offset=0):
             """从 API 获取所有任务"""
@@ -572,11 +603,16 @@ elif DATA_SOURCE == "api":
         
         def _get_user_active_task(user_id):
             """获取用户活动任务（API 模式）"""
+            tasks = _get_all_tasks(status_filter='PROCESSING', limit=100)
+            for task in tasks:
+                if task.get('user_id') == user_id:
+                    return task
             return None
         
         def _get_user_completed_tasks(user_id, limit=20):
             """获取用户已完成任务（API 模式）"""
-            return []
+            tasks = _get_all_tasks(status_filter='COMPLETED', limit=limit)
+            return [t for t in tasks if t.get('user_id') == user_id]
         
         def _has_active_task(user_id):
             """检查用户是否有活动任务（API 模式）"""

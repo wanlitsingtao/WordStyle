@@ -5,9 +5,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.models import SystemConfig, User
+from app.models import SystemConfig, User, ConversionTask
 from pydantic import BaseModel
 from typing import Optional
+from datetime import datetime
 
 router = APIRouter()
 
@@ -179,8 +180,6 @@ def get_tasks_list(
 @router.get("/task-stats")
 def get_task_statistics(db: Session = Depends(get_db)):
     """获取任务统计信息"""
-    from app.models import ConversionTask
-    
     total = db.query(ConversionTask).count()
     completed = db.query(ConversionTask).filter(
         ConversionTask.status == 'COMPLETED'
@@ -201,4 +200,120 @@ def get_task_statistics(db: Session = Depends(get_db)):
         'processing_tasks': processing,
         'pending_tasks': pending,
         'failed_tasks': failed,
+    }
+
+@router.post("/tasks")
+def create_task_api(task_data: dict, db: Session = Depends(get_db)):
+    """创建任务（供 API 模式调用）"""
+    task = ConversionTask(
+        task_id=task_data['task_id'],
+        user_id=task_data['user_id'],
+        filename=task_data.get('filename', ''),
+        paragraphs=task_data.get('paragraphs', 0),
+        cost=task_data.get('cost', 0.0),
+        status='PENDING',
+        progress=0
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    
+    return {
+        'success': True,
+        'task_id': str(task.id),
+        'message': '任务已创建'
+    }
+
+@router.put("/tasks/{task_id}")
+def update_task_status_api(task_id: str, status_data: dict, db: Session = Depends(get_db)):
+    """更新任务状态（供 API 模式调用）"""
+    task = db.query(ConversionTask).filter(ConversionTask.task_id == task_id).first()
+    if not task:
+        return {'success': False, 'error': '任务不存在'}
+    
+    task.status = status_data.get('status', task.status)
+    if 'progress' in status_data:
+        task.progress = status_data['progress']
+    if 'error_message' in status_data:
+        task.error_message = status_data['error_message']
+    if task.status == 'COMPLETED':
+        task.completed_at = datetime.now()
+    
+    db.commit()
+    return {'success': True, 'message': '任务状态已更新'}
+
+# ==================== 用户数据写入 API ====================
+
+@router.post("/users/{user_id}")
+def create_or_update_user(user_id: str, user_data: dict, db: Session = Depends(get_db)):
+    """创建或更新用户数据（供 API 模式调用）"""
+    user = db.query(User).filter(User.id == user_id).first()
+    
+    if user:
+        # 更新现有用户
+        user.balance = user_data.get('balance', user.balance)
+        user.paragraphs_remaining = user_data.get('paragraphs_remaining', user.paragraphs_remaining)
+        user.total_paragraphs_used = user_data.get('total_paragraphs_used', user.total_paragraphs_used)
+        user.total_converted = user_data.get('total_converted', user.total_converted)
+        user.last_login = datetime.now()
+    else:
+        # 创建新用户
+        user = User(
+            id=user_id,
+            balance=user_data.get('balance', 0.0),
+            paragraphs_remaining=user_data.get('paragraphs_remaining', 0),
+            total_paragraphs_used=user_data.get('total_paragraphs_used', 0),
+            total_converted=user_data.get('total_converted', 0),
+            is_active=True,
+            last_login=datetime.now(),
+        )
+        db.add(user)
+    
+    db.commit()
+    db.refresh(user)
+    
+    return {
+        'success': True,
+        'user_id': str(user.id),
+        'message': '用户数据已保存'
+    }
+
+@router.post("/users/{user_id}/claim-free")
+def claim_free_paragraphs(user_id: str, db: Session = Depends(get_db)):
+    """领取免费段落（供 API 模式调用）"""
+    from config import FREE_PARAGRAPHS_DAILY
+    from datetime import datetime
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return {'success': False, 'error': '用户不存在'}
+    
+    # 设置免费段落数
+    user.paragraphs_remaining = FREE_PARAGRAPHS_DAILY
+    db.commit()
+    
+    return {
+        'success': True,
+        'paragraphs': FREE_PARAGRAPHS_DAILY,
+        'message': f'已领取 {FREE_PARAGRAPHS_DAILY} 个免费段落'
+    }
+
+@router.post("/users/{user_id}/deduct")
+def deduct_paragraphs(user_id: str, paragraphs: int, db: Session = Depends(get_db)):
+    """扣除段落（供 API 模式调用）"""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        return {'success': False, 'error': '用户不存在'}
+    
+    if user.paragraphs_remaining < paragraphs:
+        return {'success': False, 'error': '段落数不足'}
+    
+    user.paragraphs_remaining -= paragraphs
+    user.total_paragraphs_used += paragraphs
+    db.commit()
+    
+    return {
+        'success': True,
+        'remaining': user.paragraphs_remaining,
+        'message': f'已扣除 {paragraphs} 个段落'
     }

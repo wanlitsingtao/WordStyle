@@ -50,7 +50,7 @@ from utils import (
 
 # 导入用户管理
 from data_manager import (
-    load_user_data, save_user_data, claim_free_paragraphs
+    load_user_data, save_user_data, claim_free_paragraphs, register_or_login_user
 )
 
 # 导入评论管理
@@ -264,17 +264,16 @@ if 'user_id' not in st.session_state:
         st.session_state.user_id = new_user_id
         logger.info(f"生成新用户ID: {new_user_id}")
         
-        # ✅ 修复：立即创建用户记录并领取免费额度，确保持久化
-        from user_manager import claim_free_paragraphs, load_user_data, save_user_data
+        # 使用统一数据接口（data_manager 已在顶部导入）
         
-        # 先加载用户数据（会创建默认结构）
+        # 先加载用户数据（使用统一数据接口）
         user_data = load_user_data(new_user_id)
         
-        # 自动领取免费额度
+        # 自动领取免费额度（使用统一数据接口）
         free_paragraphs = claim_free_paragraphs(new_user_id)
         
-        # 保存用户数据（确保持久化）
-        save_user_data(user_data, new_user_id)
+        # 注册用户数据（同步到数据库/JSON）
+        register_or_login_user(new_user_id, load_user_data(new_user_id))
         
         logger.info(f"新用户 {new_user_id} 已创建并领取 {free_paragraphs} 免费段落")
 
@@ -1380,7 +1379,8 @@ else:
                     }
                     user_data['conversion_history'].append(conversion_record)
                     
-                    # 保存用户数据
+                    # 保存用户数据（使用统一数据接口）
+                    from data_manager import save_user_data
                     save_user_data(user_data, st.session_state.user_id)
                     
                     # ✅ 修复：将转换结果文件路径保存到 session_state，防止刷新后丢失
@@ -1610,7 +1610,7 @@ def show_style_mapping_dialog():
     # 初始化或加载样式映射（按文件分别存储）
     if 'file_style_mappings' not in st.session_state:
         # 从持久化存储加载
-        from user_manager import load_style_mappings
+        from data_manager import load_user_data, save_user_data
         st.session_state.file_style_mappings = load_style_mappings()
     
     # 如果有多个文件，先选择要配置的文件
@@ -1688,18 +1688,20 @@ def show_style_mapping_dialog():
     
     with btn_col1:
         if st.button("✅ 确定", key="confirm_mapping_btn", type="primary", use_container_width=True):
-            # 持久化保存到用户数据
-            from user_manager import save_style_mappings
-            save_style_mappings(st.session_state.file_style_mappings)
+            # 保存样式映射到用户数据
+            user_data = load_user_data(st.session_state.user_id)
+            user_data['style_mappings'] = st.session_state.file_style_mappings
+            save_user_data(user_data, st.session_state.user_id)
             st.success("✅ 样式映射已保存！")
             # ✅ 不再使用st.rerun()，让对话框自然关闭
     
     with btn_col2:
-        if st.button("🔄 恢复默认", key="reset_mapping_btn", use_container_width=True):
+        if st.button(" 恢复默认", key="reset_mapping_btn", use_container_width=True):
             st.session_state.file_style_mappings[selected_file.name] = {}
-            # 持久化保存
-            from user_manager import save_style_mappings
-            save_style_mappings(st.session_state.file_style_mappings)
+            # 保存样式映射到用户数据
+            user_data = load_user_data(st.session_state.user_id)
+            user_data['style_mappings'] = st.session_state.file_style_mappings
+            save_user_data(user_data, st.session_state.user_id)
             st.info("已恢复默认映射")
             # ✅ 不再使用st.rerun()
     
