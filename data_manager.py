@@ -1,17 +1,21 @@
 # -*- coding: utf-8 -*-
 """
-统一数据访问层 - 支持双模式（SQLite/Supabase）
+统一数据访问层 - 支持三模式（SQLite/Supabase/API）
 自动检测环境并选择合适的数据源
+- local: 本地开发（SQLite + JSON）
+- supabase: 直接连接 Supabase（Render 等允许出站数据库连接的环境）
+- api: 通过后端 API 获取数据（Streamlit Cloud 等受限环境）
 """
 import os
 import sys
+import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 
 # 导入配置
 sys.path.insert(0, os.path.dirname(__file__))
-from config import DATA_SOURCE, DATABASE_URL, USER_DATA_FILE, TASKS_DB_FILE
+from config import DATA_SOURCE, DATABASE_URL, BACKEND_URL, USER_DATA_FILE, TASKS_DB_FILE
 
 # ==================== 本地模式导入 ====================
 if DATA_SOURCE == "local":
@@ -454,6 +458,133 @@ elif DATA_SOURCE == "supabase":
             get_task_stats as _get_task_stats,
             register_or_login_user as _register_user,
         )
+
+# ==================== API 模式导入 ====================
+elif DATA_SOURCE == "api":
+    """
+    API 模式：通过后端 API 获取数据
+    适用于 Streamlit Cloud 等无法直连数据库的环境
+    """
+    # 确保 BACKEND_URL 存在
+    if not BACKEND_URL:
+        print("⚠️ API 模式需要 BACKEND_URL，回退到本地模式")
+        DATA_SOURCE = "local"
+        from user_manager import (
+            load_user_data as _load_user,
+            save_user_data as _save_user,
+            load_all_users_data as _load_all_users,
+        )
+        from task_manager import (
+            create_task as _create_task,
+            complete_task as _complete_task,
+            fail_task as _fail_task,
+            get_all_tasks as _get_all_tasks,
+            get_task_stats as _get_task_stats,
+            register_or_login_user as _register_user,
+        )
+    else:
+        print(f" 数据访问层初始化：API 模式 (后端: {BACKEND_URL})")
+        
+        def _make_api_request(endpoint: str, params: dict = None) -> dict:
+            """发送 API 请求到后端"""
+            try:
+                url = f"{BACKEND_URL}/api/admin{endpoint}"
+                response = requests.get(url, params=params, timeout=10)
+                response.raise_for_status()
+                return response.json()
+            except Exception as e:
+                print(f"️ API 请求失败: {endpoint} - {e}")
+                return {}
+        
+        def _load_user(user_id: str) -> Dict[str, Any]:
+            """从 API 加载用户数据"""
+            result = _make_api_request(f"/users", params={"user_id": user_id})
+            users = result.get('users', [])
+            return users[0] if users else None
+        
+        def _save_user(user_data: Dict[str, Any], user_id: str = None):
+            """保存用户数据到 API"""
+            pass  # API 模式下不通过此接口保存
+        
+        def _load_all_users() -> List[Dict[str, Any]]:
+            """从 API 加载所有用户"""
+            result = _make_api_request("/users", params={"limit": 1000})
+            return result.get('users', [])
+        
+        def _register_user(user_id: str, user_data: Dict[str, Any]):
+            """注册用户（API 模式）"""
+            # 注册由主应用处理
+            pass
+        
+        def _claim_free(user_id=None):
+            """领取免费段落（API 模式）"""
+            pass
+        
+        def _recharge_user(amount, package_label, user_id=None):
+            """充值用户（API 模式）"""
+            pass
+        
+        def _deduct_paragraphs(paragraphs, user_id=None):
+            """扣除段落（API 模式）"""
+            pass
+        
+        def _add_conversion_record(files_count, success_count, failed_count, user_id=None):
+            """添加转换记录（API 模式）"""
+            pass
+        
+        def _get_user_stats(user_id=None) -> Dict[str, Any]:
+            """获取用户统计（API 模式）"""
+            return {}
+        
+        def _generate_user_id():
+            """生成用户ID（API 模式）"""
+            import uuid
+            return str(uuid.uuid4())
+        
+        def _create_task(task_id, user_id, filename, file_count=1, paragraphs=0, cost=0.0):
+            """创建任务（API 模式）"""
+            pass
+        
+        def _update_task_status(task_id, status, progress=None, error_message=None):
+            """更新任务状态（API 模式）"""
+            pass
+        
+        def _complete_task(task_id):
+            """完成任务（API 模式）"""
+            pass
+        
+        def _fail_task(task_id, error_message=""):
+            """标记任务失败（API 模式）"""
+            pass
+        
+        def _get_all_tasks(status_filter=None, limit=100, offset=0):
+            """从 API 获取所有任务"""
+            params = {"skip": offset, "limit": limit}
+            if status_filter and status_filter != 'ALL':
+                params['status_filter'] = status_filter
+            
+            result = _make_api_request("/tasks", params=params)
+            return result.get('tasks', [])
+        
+        def _get_task_stats() -> Dict[str, Any]:
+            """从 API 获取任务统计"""
+            return _make_api_request("/task-stats")
+        
+        def _get_user_active_task(user_id):
+            """获取用户活动任务（API 模式）"""
+            return None
+        
+        def _get_user_completed_tasks(user_id, limit=20):
+            """获取用户已完成任务（API 模式）"""
+            return []
+        
+        def _has_active_task(user_id):
+            """检查用户是否有活动任务（API 模式）"""
+            return False
+        
+        def _cleanup_expired_tasks():
+            """清理过期任务（API 模式）"""
+            return 0
 
 # ==================== 统一 API ====================
 

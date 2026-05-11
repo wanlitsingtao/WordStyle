@@ -112,3 +112,93 @@ def get_system_stats(db: Session = Depends(get_db)):
         "total_revenue": float(total_revenue),
         "message": "系统统计信息"
     }
+
+@router.get("/users")
+def get_users_list(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """获取用户列表"""
+    users = db.query(User).order_by(User.created_at.desc()).offset(skip).limit(limit).all()
+    
+    return {
+        "total": db.query(User).count(),
+        "users": [
+            {
+                'user_id': u.id,
+                'balance': float(u.balance or 0),
+                'paragraphs_remaining': int(u.paragraphs_remaining or 0),
+                'paragraphs_used': int(u.total_paragraphs_used or 0),
+                'total_converted': int(u.total_converted or 0),
+                'is_active': bool(u.is_active),
+                'created_at': u.created_at.isoformat() if u.created_at else '',
+                'last_login': u.last_login.isoformat() if u.last_login else '',
+            }
+            for u in users
+        ]
+    }
+
+@router.get("/tasks")
+def get_tasks_list(
+    skip: int = 0,
+    limit: int = 100,
+    status_filter: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """获取任务列表"""
+    from app.models import ConversionTask
+    
+    query = db.query(ConversionTask)
+    if status_filter and status_filter != 'ALL':
+        query = query.filter(ConversionTask.status == status_filter)
+    
+    tasks = query.order_by(ConversionTask.created_at.desc()).offset(skip).limit(limit).all()
+    total = query.count()
+    
+    return {
+        "total": total,
+        "tasks": [
+            {
+                'task_id': t.task_id,
+                'user_id': t.user_id,
+                'filename': t.filename,
+                'file_count': t.file_count,
+                'paragraphs': t.paragraphs,
+                'cost': float(t.cost or 0),
+                'status': t.status,
+                'progress': t.progress,
+                'created_at': t.created_at.isoformat() if t.created_at else '',
+                'completed_at': t.completed_at.isoformat() if t.completed_at else '',
+                'error_message': t.error_message,
+            }
+            for t in tasks
+        ]
+    }
+
+@router.get("/task-stats")
+def get_task_statistics(db: Session = Depends(get_db)):
+    """获取任务统计信息"""
+    from app.models import ConversionTask
+    
+    total = db.query(ConversionTask).count()
+    completed = db.query(ConversionTask).filter(
+        ConversionTask.status == 'COMPLETED'
+    ).count()
+    processing = db.query(ConversionTask).filter(
+        ConversionTask.status == 'PROCESSING'
+    ).count()
+    pending = db.query(ConversionTask).filter(
+        ConversionTask.status == 'PENDING'
+    ).count()
+    failed = db.query(ConversionTask).filter(
+        ConversionTask.status == 'FAILED'
+    ).count()
+    
+    return {
+        'total_tasks': total,
+        'completed_tasks': completed,
+        'processing_tasks': processing,
+        'pending_tasks': pending,
+        'failed_tasks': failed,
+    }

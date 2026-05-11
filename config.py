@@ -17,8 +17,12 @@ RESULTS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
 # ==================== 数据源配置 ====================
-# 支持多种环境：本地开发、Streamlit Cloud、Render
+# 支持三种模式：
+#   1. local - 本地开发（SQLite + JSON）
+#   2. supabase - 直接连接 Supabase（仅 Render 等允许出站数据库连接的环境）
+#   3. api - 通过后端 API 获取数据（Streamlit Cloud 等受限环境）
 # 优先级：st.secrets > os.getenv() > 默认值
+# 自动检测：如果 USE_SUPABASE=true 且 BACKEND_URL 存在，则使用 api 模式
 
 def _load_config_from_secrets():
     """尝试从 Streamlit Secrets 加载配置"""
@@ -35,52 +39,14 @@ def _load_config_from_secrets():
             else:
                 use_supabase = str(use_supabase_raw).lower() == 'true'
             
-            # 获取 DATABASE_URL 并进行转换
+            # 获取 DATABASE_URL 和 BACKEND_URL
             database_url = secrets.get('DATABASE_URL')
-            
-            # 自动转换连接池器为直连地址（Streamlit Cloud 兼容）
-            if database_url and database_url.startswith("postgresql"):
-                if "pooler.supabase.com" in database_url:
-                    try:
-                        from urllib.parse import urlparse, urlunparse
-                        parsed = urlparse(database_url)
-                        
-                        # 提取项目 ID
-                        hostname = parsed.hostname or ""
-                        project_id = hostname.replace(".pooler.supabase.com", "")
-                        
-                        # 新主机名: db.{project_id}.supabase.co
-                        new_hostname = f"db.{project_id}.supabase.co"
-                        new_port = 5432
-                        
-                        # 用户名转换: postgres.{project_id} -> postgres
-                        username = parsed.username or "postgres"
-                        new_username = username.replace(f"postgres.{project_id}", "postgres")
-                        
-                        # 构建新 URL
-                        new_netloc = f"{new_username}"
-                        if parsed.password:
-                            new_netloc += f":{parsed.password}"
-                        new_netloc += f"@{new_hostname}:{new_port}"
-                        
-                        # 重建 URL
-                        database_url = urlunparse((
-                            parsed.scheme,
-                            new_netloc,
-                            parsed.path,
-                            parsed.params,
-                            parsed.query,
-                            parsed.fragment
-                        ))
-                        
-                        print(f"✅ 自动转换连接池器为直连地址（Streamlit Cloud 兼容）")
-                    except Exception as e:
-                        print(f"️ URL 转换失败: {e}，使用原始 URL")
+            backend_url = secrets.get('BACKEND_URL')
             
             return {
                 'use_supabase': use_supabase,
                 'database_url': database_url,
-                'backend_url': secrets.get('BACKEND_URL')
+                'backend_url': backend_url
             }
     except Exception:
         pass
@@ -100,10 +66,22 @@ else:
     DATABASE_URL = os.getenv("DATABASE_URL")
     BACKEND_URL = os.getenv("BACKEND_URL")
 
-if USE_SUPABASE and DATABASE_URL:
-    DATA_SOURCE = "supabase"  # 云端模式
+# 自动检测数据源模式：
+# - 如果 BACKEND_URL 存在且 USE_SUPABASE=true，使用 api 模式（Streamlit Cloud）
+# - 如果只有 DATABASE_URL 且 USE_SUPABASE=true，使用 supabase 模式（Render）
+# - 否则使用 local 模式（本地开发）
+if BACKEND_URL and USE_SUPABASE:
+    # Streamlit Cloud 等受限环境：通过后端 API 访问
+    DATA_SOURCE = "api"
+    print(f"🌐 数据源模式: API (后端: {BACKEND_URL})")
+elif USE_SUPABASE and DATABASE_URL:
+    # Render 等允许出站连接的环境：直接连接数据库
+    DATA_SOURCE = "supabase"
+    print(f" 数据源模式: Supabase (直接连接)")
 else:
-    DATA_SOURCE = "local"     # 本地模式（SQLite + JSON）
+    # 本地开发
+    DATA_SOURCE = "local"
+    print(f"💾 数据源模式: 本地 (SQLite + JSON)")
 
 # ==================== 计费配置 ====================
 # 计费规则：100个段落 = 0.1元
