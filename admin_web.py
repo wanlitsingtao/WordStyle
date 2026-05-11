@@ -20,8 +20,11 @@ from data_manager import (
     get_data_source
 )
 from comments_manager import load_feedbacks, get_feedback_stats, delete_comment
+from config import DATA_SOURCE, DATABASE_URL
 
-print(f"🔧 管理后台数据源: {get_data_source()}")
+# 在页面顶部显示数据源配置信息（用于调试）
+st.sidebar.info(f"📊 数据源: {get_data_source()}")
+st.sidebar.info(f" DB URL: {'已配置' if DATABASE_URL else '未配置'}")
 
 # ==================== 页面配置 ====================
 st.set_page_config(
