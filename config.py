@@ -4,6 +4,7 @@ WordStyle 集中配置文件
 统一管理所有配置项，避免硬编码和分散配置
 """
 import os
+import sys
 from pathlib import Path
 
 # ==================== 基础路径配置 ====================
@@ -16,10 +17,38 @@ RESULTS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
 # ==================== 数据源配置 ====================
-# 自动检测环境：云端使用 Supabase，本地使用 SQLite
-# Streamlit Cloud Secrets 会在部署时自动加载为环境变量
-USE_SUPABASE = os.getenv("USE_SUPABASE", "false").lower() == "true"
-DATABASE_URL = os.getenv("DATABASE_URL")
+# 支持多种环境：本地开发、Streamlit Cloud、Render
+# 优先级：st.secrets > os.getenv() > 默认值
+
+def _load_config_from_secrets():
+    """尝试从 Streamlit Secrets 加载配置"""
+    try:
+        import streamlit as st
+        # 检查是否在 Streamlit 环境中
+        if hasattr(st, 'secrets') and len(st.secrets) > 0:
+            secrets = st.secrets
+            return {
+                'use_supabase': secrets.get('USE_SUPABASE', '').lower() == 'true',
+                'database_url': secrets.get('DATABASE_URL'),
+                'backend_url': secrets.get('BACKEND_URL')
+            }
+    except Exception:
+        pass
+    return None
+
+# 尝试从 Streamlit Secrets 加载
+secrets_config = _load_config_from_secrets()
+
+if secrets_config:
+    # 从 Streamlit Secrets 加载（云端部署）
+    USE_SUPABASE = secrets_config['use_supabase']
+    DATABASE_URL = secrets_config['database_url']
+    BACKEND_URL = secrets_config.get('backend_url')
+else:
+    # 从环境变量加载（本地开发或 Render）
+    USE_SUPABASE = os.getenv("USE_SUPABASE", "false").lower() == "true"
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    BACKEND_URL = os.getenv("BACKEND_URL")
 
 if USE_SUPABASE and DATABASE_URL:
     DATA_SOURCE = "supabase"  # 云端模式
