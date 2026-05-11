@@ -38,8 +38,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 # 导入配置
 from config import (
-    PARAGRAPH_PRICE, MIN_RECHARGE, BACKEND_URL, RECHARGE_PACKAGES,
-    ADMIN_CONTACT, FREE_PARAGRAPHS_DAILY, RESULTS_DIR,
     DEFAULT_ANSWER_TEXT, DEFAULT_ANSWER_STYLE, DEFAULT_ANSWER_MODE,
     ANSWER_MODE_OPTIONS, DEFAULT_LIST_BULLET, PAGE_TITLE, PAGE_ICON,
     LAYOUT, SIDEBAR_STATE
@@ -47,15 +45,12 @@ from config import (
 
 # 导入工具函数
 from utils import (
-    sanitize_html, sanitize_filename, validate_docx_file,
-    calculate_cost, format_number
+    sanitize_html, sanitize_filename, validate_docx_file
 )
 
 # 导入用户管理
-from user_manager import (
-    load_user_data, save_user_data, claim_free_paragraphs,
-    recharge_user, deduct_paragraphs, add_conversion_record,
-    get_user_stats, generate_user_id
+from data_manager import (
+    load_user_data, save_user_data, claim_free_paragraphs
 )
 
 # 导入评论管理
@@ -70,11 +65,6 @@ from comments_manager import (
 
 # 导入转换器
 from doc_converter import DocumentConverter
-from task_manager import (
-    create_task, update_task_status, complete_task, fail_task,
-    get_user_active_task, get_user_completed_tasks, has_active_task,
-    cleanup_expired_tasks
-)
 
 # ==================== 对话框函数 ====================
 
@@ -152,7 +142,7 @@ def show_feedback_dialog():
                     logger.error(f"反馈提交失败: {e}")
     
     with col2:
-        if st.button("❌ 取消", use_container_width=True):
+        if st.button("❌ 关闭", use_container_width=True):
             return  # 直接返回，对话框自动关闭
 
 
@@ -163,7 +153,7 @@ def show_history_dialog():
     st.info("ℹ️ **提示：** 转换完成的文件将保留 7 天，过期后会自动清理。请及时下载您需要的文件。")
     
     # 从用户数据中获取转换历史
-    user_data = load_user_data()
+    user_data = load_user_data(st.session_state.user_id)
     conversion_history = user_data.get('conversion_history', [])
     
     if conversion_history:
@@ -244,12 +234,10 @@ if 'user_id' not in st.session_state:
                                 existing_user_id = uid
                                 break
                     
-                    # 优先级3：如果都没有，找余额不为0的用户（排除刚初始化的10000免费额度）
+                    # 优先级3：如果都没有，找有段落使用记录的用户
                     if not existing_user_id:
                         for uid, udata in all_data.items():
-                            remaining = udata.get('paragraphs_remaining', 0)
-                            # 排除默认值0和刚领取的10000，找真正使用过的用户
-                            if remaining > 0 and remaining != FREE_PARAGRAPHS_DAILY:
+                            if udata.get('total_paragraphs_used', 0) > 0:
                                 existing_user_id = uid
                                 break
         except Exception as e:
@@ -428,17 +416,7 @@ def show_comments_section():
         if len(comments) > 20:
             st.caption(f"显示最近20条评论，共 {len(comments)} 条")
 
-def get_free_paragraphs_config():
-    """从后端获取免费额度配置"""
-    try:
-        import requests
-        response = requests.get(f"{BACKEND_URL}/api/admin/config/free-paragraphs", timeout=2)
-        if response.status_code == 200:
-            data = response.json()
-            return data.get('config_value', 10000)
-        return 10000
-    except:
-        return 10000  # 默认值
+
 
 def count_paragraphs(docx_file):
     """统计文档段落数（不包括标题）"""
@@ -616,32 +594,7 @@ def analyze_source_styles(source_files, user_id):
 #         import traceback
 #         traceback.print_exc()
 
-def calculate_cost(paragraphs):
-    """计算转换费用"""
-    return paragraphs * PARAGRAPH_PRICE
 
-def recharge_user(user_data, amount, package_label):
-    """用户充值"""
-    # 计算获得的段落数
-    paragraphs_to_add = int(amount / PARAGRAPH_PRICE)
-    
-    # 更新余额和段落数
-    user_data['balance'] += amount
-    user_data['paragraphs_remaining'] += paragraphs_to_add
-    
-    # 记录充值历史
-    recharge_record = {
-        'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        'amount': amount,
-        'paragraphs': paragraphs_to_add,
-        'package': package_label
-    }
-    user_data['recharge_history'].append(recharge_record)
-    
-    # 保存
-    save_user_data(user_data)
-    
-    return paragraphs_to_add
 
 def count_pages(docx_file):
     """估算文档页数（基于段落数）"""
@@ -656,14 +609,27 @@ def count_pages(docx_file):
         return 0  # 无法计算时返回0
 
 # ==================== 页面配置 ====================
-# ==================== 定期清理过期任务 ====================
-# 每次加载页面时检查并清理过期任务（7天前的任务）
+# ==================== 定期清理过期文件 ====================
+# 每次加载页面时检查并清理7天前的转换结果文件
 try:
-    cleaned_count = cleanup_expired_tasks()
-    if cleaned_count > 0:
-        print(f"已清理 {cleaned_count} 个过期任务")
+    from pathlib import Path
+    import time
+    results_dir = Path("conversion_results")
+    if results_dir.exists():
+        now = time.time()
+        seven_days_ago = now - (7 * 24 * 3600)
+        cleaned_count = 0
+        for file_path in results_dir.glob("*.docx"):
+            if file_path.stat().st_mtime < seven_days_ago:
+                try:
+                    file_path.unlink()
+                    cleaned_count += 1
+                except Exception as e:
+                    logger.error(f"清理文件失败 {file_path}: {e}")
+        if cleaned_count > 0:
+            logger.info(f"已清理 {cleaned_count} 个过期的转换结果文件")
 except Exception as e:
-    print(f"清理过期任务失败: {e}")
+    logger.error(f"清理过期文件失败: {e}")
 
 # ==================== 应用启动时清理临时文件 ====================
 # 清理超过24小时的临时文件，避免磁盘空间浪费
@@ -777,12 +743,12 @@ with st.sidebar:
     st.caption(f"用户ID: {st.session_state.user_id[:12]}...")
     
     # 每日自动领取免费额度（检查日期，如果是新的一天则重置）
-    free_paragraphs = claim_free_paragraphs()
+    free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
     if free_paragraphs > 0:
         st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
     
     # 加载用户数据
-    user_data = load_user_data()
+    user_data = load_user_data(st.session_state.user_id)
     
     # 显示段落数和统计信息
     st.metric("剩余段落数", f"{user_data['paragraphs_remaining']:,}")
@@ -822,13 +788,19 @@ source_files = st.file_uploader(
 if source_files and not st.session_state.source_files_uploaded:
     st.session_state.source_files_uploaded = True
 
+# ✅ 修复：优先使用session_state中的文件，如果为空则使用file_uploader返回的文件
+current_source_files = st.session_state.get('current_source_files', None)
 if source_files:
-    # 保存到 session_state，供对话框使用
+    # 如果有新上传的文件，更新session_state
+    current_source_files = source_files
     st.session_state.current_source_files = source_files
+
+if current_source_files:
+    # ✅ 修复：不再重复设置，已经在第830-831行设置过了
     
     # 检查是否需要重新分析（文件变化或尚未分析）
     need_analyze = False
-    current_file_names = [sf.name for sf in source_files]
+    current_file_names = [sf.name for sf in current_source_files]
     analyzed_file_names = list(st.session_state.get('file_styles_map', {}).keys())
     
     if not analyzed_file_names or set(current_file_names) != set(analyzed_file_names):
@@ -919,12 +891,10 @@ if source_files:
         status_text.text("✅ 已分析完成（使用缓存）")
     
     # ⚡ 性能优化：使用分析阶段已计算的段落数，避免重复读取
-    file_info = [(sf.name, file_paragraph_counts[sf.name]) for sf in source_files]
+    file_info = [(sf.name, file_paragraph_counts[sf.name]) for sf in current_source_files]
     total_paragraphs = sum(file_paragraph_counts.values())
     
-    cost = calculate_cost(total_paragraphs)
-    
-    # 将所有信息整合到一个expander中（暂时不显示费用）
+    # 将所有信息整合到一个expander中
     with st.expander(f"📄 源文档信息：{len(source_files)}个文件 | {len(all_styles)}种样式 | {total_paragraphs:,}段落", expanded=True):
         # 第一行：基本信息
         st.markdown(f"**✅ 已上传:** {len(source_files)} 个文件")
@@ -938,9 +908,11 @@ if source_files:
         # 第三行：段落数
         st.markdown(f"**📊 总段落数:** {total_paragraphs:,}")
         
-        if total_paragraphs > user_data['paragraphs_remaining']:
-            st.error(f"❌ 余额不足！需要 {total_paragraphs:,}，剩余 {user_data['paragraphs_remaining']:,}")
-            st.warning("请先充值")
+        # ✅ 只在非转换完成状态下检查余额（防止重渲染时误报）
+        if not st.session_state.get('show_download_buttons', False):
+            if total_paragraphs > user_data['paragraphs_remaining']:
+                st.error(f"❌ 余额不足！需要 {total_paragraphs:,}，剩余 {user_data['paragraphs_remaining']:,}")
+                st.warning("请先充值")
 
 # 模板文档上传（上下排列）
 # 使用 session_state 保持上传器状态
@@ -959,18 +931,26 @@ template_file = st.file_uploader(
 if template_file and not st.session_state.template_file_uploaded:
     st.session_state.template_file_uploaded = True
 
+# ✅ 修复：优先使用session_state中的模板文件路径，如果为空则使用file_uploader返回的文件
+current_temp_template = st.session_state.get('current_temp_template', None)
+last_template_name = st.session_state.get('last_template_name', None)
+
 if template_file:
-    # 保存临时文件
+    # 如果有新上传的模板文件，保存并更新session_state
     temp_template = f"temp_template_{st.session_state.user_id}.docx"
     with open(temp_template, 'wb') as f:
         f.write(template_file.getbuffer())
-    
-    # 保存到 session_state，供对话框使用
+    current_temp_template = temp_template
+    last_template_name = template_file.name
     st.session_state.current_temp_template = temp_template
+    st.session_state.last_template_name = last_template_name
+
+if current_temp_template:
+    # ✅ 修复：不再重复保存文件，直接使用current_temp_template
     
     # 检查是否需要重新分析模板样式
     need_analyze_template = ('template_styles' not in st.session_state or 
-                             st.session_state.get('last_template_name') != template_file.name)
+                             st.session_state.get('last_template_name') != last_template_name)
     
     # 始终创建进度条组件（避免作用域问题）
     template_progress_bar = st.progress(0)
@@ -986,14 +966,14 @@ if template_file:
         template_status_text.text("正在提取所有段落样式...")
         
         # 使用正确的函数：从doc.styles中提取所有段落样式
-        template_styles_list = get_template_styles_list(temp_template)
+        template_styles_list = get_template_styles_list(current_temp_template)
         
         # 分析完成
         template_progress_bar.progress(1.0)
         template_status_text.text(f"✅ 已提取 {len(template_styles_list)} 种样式！")
         
         st.session_state.template_styles = template_styles_list
-        st.session_state.last_template_name = template_file.name
+        st.session_state.last_template_name = last_template_name
     else:
         # 使用已缓存的样式，显示进度条（直接100%）
         template_styles = st.session_state.template_styles
@@ -1001,8 +981,8 @@ if template_file:
         template_status_text.text("✅ 已分析完成（使用缓存）")
     
     # 将模板信息整合到一个expander中
-    with st.expander(f"📋 模板文档信息：{template_file.name} | {len(st.session_state.template_styles)}种样式", expanded=True):
-        st.markdown(f"**✅ 已上传:** {template_file.name}")
+    with st.expander(f"📋 模板文档信息：{os.path.basename(current_temp_template)} | {len(st.session_state.template_styles)}种样式", expanded=True):
+        st.markdown(f"**✅ 已上传:** {os.path.basename(current_temp_template)}")
         st.markdown(f"**📋 检测到样式:** {len(st.session_state.template_styles)} 种 - {', '.join(st.session_state.template_styles[:10])}{'...' if len(st.session_state.template_styles) > 10 else ''}")
 
 # 转换配置
@@ -1122,57 +1102,62 @@ def render_conversion_config():
             # 仅在值改变时更新
             if answer_text != st.session_state.get('answer_text_config'):
                 st.session_state.answer_text_config = answer_text
-    
-    with col_b:
-        # 获取模板样式列表（使用缓存的引用）
-        template_styles = st.session_state.get('template_styles', ["Normal"])
         
-        # 预计算index，避免每次渲染都查找
-        style_index = 0
-        if st.session_state.answer_style_config in template_styles:
-            try:
-                style_index = template_styles.index(st.session_state.answer_style_config)
-            except ValueError:
-                style_index = 0
+        with col_b:
+            # 获取模板样式列表（使用缓存的引用）
+            template_styles = st.session_state.get('template_styles', ["Normal"])
+            
+            # 预计算index，避免每次渲染都查找
+            style_index = 0
+            if st.session_state.answer_style_config in template_styles:
+                try:
+                    style_index = template_styles.index(st.session_state.answer_style_config)
+                except ValueError:
+                    style_index = 0
+            
+            answer_style = st.selectbox(
+                "应答句样式",
+                options=template_styles,
+                index=style_index,
+                help="应答句的段落样式",
+                key="answer_style_select"
+            )
+            # 实时更新 session_state
+            st.session_state.answer_style_config = answer_style
         
-        answer_style = st.selectbox(
-            "应答句样式",
-            options=template_styles,
-            index=style_index,
-            help="应答句的段落样式",
-            key="answer_style_select"
-        )
-        # 实时更新 session_state
-        st.session_state.answer_style_config = answer_style
-    
-    with col_c:
-        # 使用缓存的options，保持引用稳定
-        answer_mode_options = get_answer_mode_options()
-        
-        # 预计算mode_keys和index，避免每次渲染都创建新列表
-        if 'answer_mode_keys_cache' not in st.session_state:
-            st.session_state.answer_mode_keys_cache = list(answer_mode_options.keys())
-        mode_keys = st.session_state.answer_mode_keys_cache
-        
-        # 预计算index
-        mode_index = 0
-        if st.session_state.answer_mode_config in answer_mode_options:
-            try:
-                mode_index = mode_keys.index(st.session_state.answer_mode_config)
-            except ValueError:
-                mode_index = 0
-        
-        answer_mode = st.selectbox(
-            "插入模式",
-            options=mode_keys,
-            format_func=lambda x: answer_mode_options[x],
-            index=mode_index,
-            help="应答句的插入位置模式",
-            key="answer_mode_select"
-        )
-        # 仅在值改变时更新
-        if answer_mode != st.session_state.get('answer_mode_config'):
-            st.session_state.answer_mode_config = answer_mode
+        with col_c:
+            # 使用缓存的options，保持引用稳定
+            answer_mode_options = get_answer_mode_options()
+            
+            # 预计算mode_keys和index，避免每次渲染都创建新列表
+            if 'answer_mode_keys_cache' not in st.session_state:
+                st.session_state.answer_mode_keys_cache = list(answer_mode_options.keys())
+            mode_keys = st.session_state.answer_mode_keys_cache
+            
+            # 预计算index
+            mode_index = 0
+            if st.session_state.answer_mode_config in answer_mode_options:
+                try:
+                    mode_index = mode_keys.index(st.session_state.answer_mode_config)
+                except ValueError:
+                    mode_index = 0
+            
+            answer_mode = st.selectbox(
+                "插入模式",
+                options=mode_keys,
+                format_func=lambda x: answer_mode_options[x],
+                index=mode_index,
+                help="应答句的插入位置模式",
+                key="answer_mode_select"
+            )
+            # 仅在值改变时更新
+            if answer_mode != st.session_state.get('answer_mode_config'):
+                st.session_state.answer_mode_config = answer_mode
+    else:
+        # 未勾选时设置默认值
+        answer_text = st.session_state.answer_text_config
+        answer_style = st.session_state.answer_style_config
+        answer_mode = st.session_state.answer_mode_config
     
     # 返回配置值供后续使用
     return do_mood, do_answer, list_bullet, answer_text, answer_style, answer_mode
@@ -1189,84 +1174,39 @@ if not do_answer:
 # 开始转换按钮
 st.markdown("---")
 
-# ✅ 修复：显示最近的转换结果（防止刷新后丢失）
-if 'recent_results' in st.session_state and st.session_state.recent_results:
-    st.subheader("📥 最近转换结果")
-    st.info("ℹ️ **提示：** 转换完成的文件将保留 7 天，过期后会自动清理。请及时下载您需要的文件。")
-    
-    # 显示所有最近的结果文件
-    for idx, file_info in enumerate(st.session_state.recent_results):
-        if os.path.exists(file_info['path']):
-            with open(file_info['path'], 'rb') as f:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.download_button(
-                        label=f"📥 下载: {file_info['name']}",
-                        data=f.read(),
-                        file_name=file_info['name'],
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        use_container_width=True,
-                        key=f"download_recent_{idx}"
-                    )
-                with col2:
-                    st.caption(f"转换时间: {file_info['time']}")
-        else:
-            st.warning(f"⚠️ 文件已过期或不存在: {file_info['name']}")
-    
-    # 提供清空按钮
-    if st.button("🗑️ 清空结果列表", key="clear_results_btn"):
-        st.session_state.recent_results = []
-        st.rerun()
-    
-    st.markdown("---")
+# 检查是否正在前台转换中
+is_converting = st.session_state.get('is_converting', False)
 
-# 检查是否有进行中的任务
-active_task = has_active_task(st.session_state.user_id)
-
-if active_task:
-    st.warning(f"⚠️ **您有一个进行中的后台任务**\n\n文件名：{active_task['filename']}\n状态：{active_task['status']}\n\n建议等待当前任务完成后再提交新任务。")
-    
-    # 显示当前任务进度
-    if active_task['status'] == 'PROCESSING':
-        st.progress(active_task['progress'] / 100.0)
-        st.text(f"转换进度：{active_task['progress']}%")
-    
-    st.info("💡 您可以在下方的「转换历史」中查看任务状态和下载完成的文件")
+if is_converting:
+    # 如果正在转换，显示提示信息
+    st.warning("⏳ **正在进行前台转换，请稍候...**\n\n转换期间无法进行其他操作，请耐心等待转换完成。")
+    st.info("💡 转换完成后将自动恢复操作权限")
 else:
-    # 检查是否正在前台转换中
-    is_converting = st.session_state.get('is_converting', False)
-    
-    if is_converting:
-        # 如果正在转换，显示提示信息
-        st.warning("⏳ **正在进行前台转换，请稍候...**\n\n转换期间无法进行其他操作，请耐心等待转换完成。")
-        st.info("💡 转换完成后将自动恢复操作权限")
-        # 不立即重置标志，让转换流程自然结束
-    else:
-        # 正常状态，显示开始转换按钮
-        # 如果有后台任务，禁用按钮
-        button_disabled = has_active_task(st.session_state.user_id)
-        
-        if st.button("🚀 开始转换", type="primary", use_container_width=True, disabled=button_disabled):
-            # 验证输入
-            if not source_files or not template_file:
+    # 正常状态，显示开始转换按钮
+    if st.button("🚀 开始转换", type="primary", use_container_width=True):
+            # ✅ 提前定义进度条和状态文本（必须在所有使用之前）
+            progress_placeholder = st.empty()
+            status_placeholder = st.empty()
+            progress_bar = progress_placeholder.progress(0)
+            
+            # 验证输入（从session_state中恢复文件变量）
+            # ✅ 修复：从session_state获取文件，而不是依赖局部变量（页面刷新后会丢失）
+            current_source_files = st.session_state.get('current_source_files', None)
+            current_temp_template = st.session_state.get('current_temp_template', None)
+                        
+            if not current_source_files or not current_temp_template:
                 st.error("❌ 请上传源文档和模板文档")
-            elif 'temp_template' not in locals():
+                status_placeholder.text("❌ 验证失败：缺少文件")
+                progress_bar.progress(0)
+            elif not os.path.exists(current_temp_template):
                 st.error("❌ 文件上传失败，请重试")
+                status_placeholder.text("❌ 验证失败：文件上传错误")
+                progress_bar.progress(0)
             else:
-                # 检查是否有进行中的任务（防止重复提交）
-                if has_active_task(st.session_state.user_id):
-                    active_task = get_user_active_task(st.session_state.user_id)
-                    st.error(f"❌ 您已有进行中的任务：{active_task['filename']}")
-                    st.info("请等待当前任务完成后再提交新任务")
-                    st.stop()
-                
                 # 设置转换标志，禁用后续操作
                 st.session_state.is_converting = True
                 
-                # ⚡ 性能优化：立即显示进度条，不要等验证完成
-                progress_placeholder = st.empty()
-                status_placeholder = st.empty()
-                progress_bar = progress_placeholder.progress(0)
+                # ⚡ 性能优化：立即更新进度条，不要等验证完成
                 status_placeholder.text("⏳ 正在验证输入...")
                 progress_bar.progress(5)
             
@@ -1274,39 +1214,22 @@ else:
             # 如果file_paragraph_counts不存在（异常情况），使用兜底逻辑
             if 'file_paragraph_counts' in st.session_state and st.session_state.file_paragraph_counts:
                 file_paragraph_counts = st.session_state.file_paragraph_counts
-                file_info = [(sf.name, file_paragraph_counts[sf.name]) for sf in source_files]
+                file_info = [(sf.name, file_paragraph_counts[sf.name]) for sf in current_source_files]
                 total_paragraphs = sum(file_paragraph_counts.values())
             else:
                 # 兜底逻辑：重新计算（不应该发生）
                 logger.warning("file_paragraph_counts 不存在，使用兜底逻辑重新计算")
                 total_paragraphs = 0
                 file_info = []
-                for sf in source_files:
+                for sf in current_source_files:
                     temp_source = f"temp_source_{st.session_state.user_id}_{sf.name}"
                     paragraphs = count_paragraphs(temp_source)
                     total_paragraphs += paragraphs
                     file_info.append((sf.name, paragraphs))
             
-            cost = calculate_cost(total_paragraphs)
             
             progress_bar.progress(10)
-            status_placeholder.text("⏳ 检查余额...")
-            
-            if total_paragraphs > user_data['paragraphs_remaining']:
-                st.error(f"❌ 余额不足！需要 {total_paragraphs:,} 个段落（¥{cost:.2f}），剩余 {user_data['paragraphs_remaining']:,} 个")
-                st.info("💡 请在左侧充值中心充值")
-                progress_placeholder.empty()
-                status_placeholder.empty()
-                st.session_state.is_converting = False
-                st.stop()
-            
-            progress_bar.progress(15)
-            status_placeholder.text("⏳ 检查任务状态...")
-            
-            # 再次检查是否有进行中的任务（防止并发提交）
-            if has_active_task(st.session_state.user_id):
-                st.error("❌ 您已有进行中的任务，请等待完成后再提交")
-                st.stop()
+            status_placeholder.text("⏳ 准备转换...")
             
             # ⚡ 性能优化：使用缓存的文件信息，避免重复读取
             source_files_info = []
@@ -1347,7 +1270,10 @@ else:
                 fail_count = 0
                 total_success_paragraphs = 0  # 成功转换的段落数
                 
-                for idx, source_file_obj in enumerate(source_files):
+                # ✅ 初始化文件级结果列表（用于持久化保存）
+                st.session_state.conversion_file_results = []
+                
+                for idx, source_file_obj in enumerate(current_source_files):
                     # 输出文件路径
                     base_name = os.path.splitext(source_file_obj.name)[0]
                     output_file = f"result_{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
@@ -1360,7 +1286,7 @@ else:
                             file_paragraphs = fpara
                             break
                     
-                    status_placeholder.text(f"⏳ 正在转换第 {idx+1}/{len(source_files)} 个文件: {source_file_obj.name} ({file_paragraphs:,} 段落)")
+                    status_placeholder.text(f" 正在转换第 {idx+1}/{len(current_source_files)} 个文件: {source_file_obj.name} ({file_paragraphs:,} 段落)")
                     
                     # ✅ 修复：使用每个文件各自的样式映射配置（与桌面版一致）
                     file_mapping = None
@@ -1391,7 +1317,7 @@ else:
                     # 执行转换
                     success, actual_file, msg = converter.full_convert(
                         source_file=temp_source,
-                        template_file=temp_template,
+                        template_file=current_temp_template,
                         output_file=output_file,
                         custom_style_map=file_mapping,  # ✅ 修复：使用每个文件各自的映射配置
                         do_mood=do_mood,
@@ -1400,7 +1326,7 @@ else:
                         list_bullet=list_bullet if list_bullet else "•",
                         do_answer_insertion=do_answer,
                         answer_mode=answer_mode,
-                        progress_callback=make_progress_callback(idx, len(source_files)),
+                        progress_callback=make_progress_callback(idx, len(current_source_files)),
                         warning_callback=warning_callback,
                         source_styles_cache=source_styles_for_file  # ⚡ 传递缓存的样式列表
                     )
@@ -1409,55 +1335,53 @@ else:
                         output_files.append(actual_file)
                         success_count += 1
                         total_success_paragraphs += file_paragraphs
-                        st.success(f"✅ {source_file_obj.name} 转换成功")
                         
-                        # 显示警告（如果有）
-                        if warnings_list:
-                            with st.expander(f"⚠️ {source_file_obj.name} 的警告信息"):
-                                for warning in warnings_list:
-                                    st.warning(warning)
+                        # ✅ 保存文件级结果到 session_state（防止重渲染后丢失）
+                        st.session_state.conversion_file_results.append({
+                            'name': source_file_obj.name,
+                            'status': 'success',
+                            'paragraphs': file_paragraphs,
+                            'warnings': warnings_list.copy()  # 复制列表，避免后续修改影响
+                        })
                     else:
-                        st.error(f"❌ {source_file_obj.name} 转换失败: {msg}")
                         fail_count += 1
+                        
+                        # ✅ 保存文件级失败结果到 session_state
+                        st.session_state.conversion_file_results.append({
+                            'name': source_file_obj.name,
+                            'status': 'fail',
+                            'msg': msg
+                        })
                 
                 progress_bar.progress(90)
                 
                 if success_count > 0:
-                    status_placeholder.text("✅ 转换完成！")
                     progress_bar.progress(100)
                     
-                    # ✅ 修复：只扣除段落数，不重复扣减balance
-                    # paragraphs_remaining 是通过充值balance换算得到的可用额度
-                    # 转换时只需扣减paragraphs_remaining即可
-                    actual_cost = calculate_cost(total_success_paragraphs)
-                    
-                    # 确保余额不会出现负数
+                    # ✅ 扣除段落脚额（只扣段落数，不涉及费用）
                     if user_data['paragraphs_remaining'] >= total_success_paragraphs:
                         user_data['paragraphs_remaining'] -= total_success_paragraphs
                     else:
                         # 如果余额不足，只扣除剩余部分，最低为0
                         user_data['paragraphs_remaining'] = 0
                     
-                    # ❌ 不再扣减balance，避免双重扣费
-                    # balance只在充值时增加，转换时不减少
-                    # paragraphs_remaining代表了用户当前可用的段落额度
+                    # 更新用户统计
                     user_data['total_converted'] += success_count
                     user_data['total_paragraphs_used'] += total_success_paragraphs
                     
-                    # 记录转换历史
+                    # 记录转换历史（不包含费用）
                     conversion_record = {
                         'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'files': len(source_files),
+                        'files': len(current_source_files),
                         'success': success_count,
                         'failed': fail_count,
-                        'paragraphs_charged': total_success_paragraphs,  # 实际扣费的段落数
-                        'cost': actual_cost,
+                        'paragraphs_charged': total_success_paragraphs,
                         'mode': 'foreground'
                     }
                     user_data['conversion_history'].append(conversion_record)
                     
                     # 保存用户数据
-                    save_user_data(user_data)
+                    save_user_data(user_data, st.session_state.user_id)
                     
                     # ✅ 修复：将转换结果文件路径保存到 session_state，防止刷新后丢失
                     if 'recent_results' not in st.session_state:
@@ -1476,12 +1400,25 @@ else:
                     # 重置转换标志
                     st.session_state.is_converting = False
                     
-                    # 显示结果
-                    st.success(f"🎉 转换完成！成功: {success_count} 个，失败: {fail_count} 个")
-                    if fail_count > 0:
-                        st.warning(f"⚠️ 有 {fail_count} 个文件转换失败，未收取费用")
-                    st.info(f"消耗 {total_success_paragraphs:,} 个段落（¥{actual_cost:.2f}）")
-                    st.info("💡 请在上方「最近转换结果」区域下载文件")
+                    # ✅ 保存转换总结信息到session_state（在下载区域统一显示，防止重复）
+                    st.session_state.conversion_summary = {
+                        'success_count': success_count,
+                        'fail_count': fail_count,
+                        'total_paragraphs': total_success_paragraphs
+                    }
+                    
+                    # ✅ 标记显示下载按钮（用于页面刷新后保持状态）
+                    st.session_state.show_download_buttons = True
+                    
+                    # ✅ 强制重新渲染，避免在同一轮渲染中重复显示转换总结
+                    st.rerun()
+                else:
+                    # 所有文件都转换失败
+                    status_placeholder.text("❌ 转换失败！")
+                    progress_bar.progress(100)
+                    st.session_state.is_converting = False
+                    st.error("❌ 所有文件转换失败，请检查错误信息")
+                    st.info("💡 请查看上方的错误提示，修正后重试")
         
             except Exception as e:
                 # 重置转换标志
@@ -1491,13 +1428,57 @@ else:
                 import traceback
                 st.code(traceback.format_exc())
 
+# ✅ 转换完成后显示下载按钮和转换总结信息（在按钮之后，从session_state读取）
+if 'show_download_buttons' in st.session_state and st.session_state.show_download_buttons:
+    # ✅ 显示转换总结信息（从session_state读取，防止刷新后丢失）
+    if 'conversion_summary' in st.session_state and st.session_state.conversion_summary:
+        summary = st.session_state.conversion_summary
+        st.success(f"🎉 转换完成！成功: {summary['success_count']} 个，失败: {summary['fail_count']} 个")
+        if summary['fail_count'] > 0:
+            st.warning(f"⚠️ 有 {summary['fail_count']} 个文件转换失败")
+        st.info(f"处理 {summary['total_paragraphs']:,} 个段落")
+    
+    # ✅ 恢复每个文件的转换结果（从 session_state 读取，防止重渲染后丢失）
+    if 'conversion_file_results' in st.session_state:
+        for result in st.session_state.conversion_file_results:
+            if result['status'] == 'success':
+                st.success(f"✅ {result['name']} 转换成功")
+                # 显示警告信息（如果有）
+                if result.get('warnings'):
+                    with st.expander(f"⚠️ {result['name']} 的警告信息"):
+                        for w in result['warnings']:
+                            st.warning(w)
+            else:
+                st.error(f"❌ {result['name']} 转换失败: {result.get('msg', '')}")
+    
+    st.subheader("📥 下载转换结果")
+    st.info("ℹ️ **提示：** 转换完成的文件将保留 7 天，过期后会自动清理。请及时下载您需要的文件。")
+    
+    # 显示所有转换结果文件
+    if 'recent_results' in st.session_state and st.session_state.recent_results:
+        for idx, file_info in enumerate(st.session_state.recent_results):
+            if os.path.exists(file_info['path']):
+                with open(file_info['path'], 'rb') as f:
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.download_button(
+                            label=f"📥 下载: {file_info['name']}",
+                            data=f.read(),
+                            file_name=file_info['name'],
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            use_container_width=True,
+                            key=f"download_recent_{file_info['name']}"
+                        )
+                    with col2:
+                        st.caption(f"转换时间: {file_info['time']}")
+            else:
+                st.warning(f"⚠️ 文件已过期或不存在: {file_info['name']}")
+    
+    st.markdown("---")
+
 # ==================== 使用说明 ====================
 st.markdown("---")
 st.subheader("📖 使用说明")
-
-# 获取当前免费额度配置
-free_quota = get_free_paragraphs_config()
-free_quota_formatted = f"{free_quota:,}"  # 格式化为带逗号的数字
 
 # 添加自定义CSS增强使用说明的视觉效果
 st.markdown("""
@@ -1579,8 +1560,7 @@ with st.expander("📖 使用说明", expanded=False):
 
 **段落统计规则：**
 - 只统计非标题的正文段落
-- 按实际段落数扣除免费额度
-- 转换失败的文件不扣减段落
+- 转换失败的文件不计入统计
 
 ---
 
@@ -1724,7 +1704,7 @@ def show_style_mapping_dialog():
             # ✅ 不再使用st.rerun()
     
     with btn_col3:
-        if st.button("❌ 取消", key="cancel_mapping_btn", use_container_width=True):
+        if st.button("❌ 关闭", key="cancel_mapping_btn", use_container_width=True):
             # ✅ 直接返回，对话框会自然关闭
             return
 

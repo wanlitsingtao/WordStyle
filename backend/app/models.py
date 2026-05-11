@@ -49,6 +49,9 @@ class User(Base):
     password_hash = Column(String(255), nullable=True)  # 改为可空，微信扫码无需密码
     balance = Column(Float, default=0.0)
     paragraphs_remaining = Column(Integer, default=0)
+    # 统计字段
+    total_paragraphs_used = Column(Integer, default=0)  # 累计使用的段落数
+    total_converted = Column(Integer, default=0)  # 累计转换的文件数
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

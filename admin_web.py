@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 WordStyle Pro - Web管理后台
-基于PostgreSQL数据库的完整管理系统
+支持双模式数据源（本地SQLite/云端Supabase）
 """
 import streamlit as st
 import sys
@@ -9,20 +9,19 @@ import os
 from datetime import datetime, timedelta
 from typing import Optional
 
-# 添加backend路径
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
+# 添加项目路径
+sys.path.insert(0, os.path.dirname(__file__))
 
-from app.core.database import engine, get_db
-from app.models import User, ConversionTask, Order, SystemConfig, Base
-from sqlalchemy import text, func, desc
-from sqlalchemy.orm import Session
+# 使用统一数据访问层（支持双模式）
+from data_manager import (
+    get_all_tasks,
+    get_task_stats,
+    load_all_users_data,
+    get_data_source
+)
+from comments_manager import load_feedbacks, get_feedback_stats, delete_comment
 
-# ==================== 自动初始化数据库表 ====================
-try:
-    Base.metadata.create_all(bind=engine)
-    print("✅ 数据库表已就绪")
-except Exception as e:
-    print(f"⚠️ 数据库表初始化警告: {e}")
+print(f"🔧 管理后台数据源: {get_data_source()}")
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -55,14 +54,13 @@ st.markdown("""
 
 # ==================== 辅助函数 ====================
 
-def get_db_session():
-    """获取数据库会话"""
-    return Session(engine)
-
-def format_datetime(dt):
-    """格式化日期时间"""
-    if dt:
-        return dt.strftime('%Y-%m-%d %H:%M:%S')
+def format_datetime(dt_str):
+    """格式化日期时间字符串"""
+    if dt_str and dt_str != '-':
+        try:
+            return datetime.fromisoformat(dt_str).strftime('%Y-%m-%d %H:%M:%S')
+        except:
+            return dt_str
     return '-'
 
 def format_currency(amount):
@@ -76,173 +74,73 @@ def show_dashboard():
     st.title("📊 数据看板")
     st.markdown("---")
     
-    db = get_db_session()
-    
     try:
-        # 获取统计数据
-        total_users = db.query(User).count()
-        active_users = db.query(User).filter(User.is_active == True).count()
+        # 获取统计数据（从统一数据访问层）
+        stats = get_task_stats()
         
-        today = datetime.now().date()
-        today_users = db.query(User).filter(
-            func.date(User.created_at) == today
-        ).count()
+        # 获取用户总数（从 JSON/Supabase）
+        all_users = load_all_users_data()
+        total_users = len(all_users)
         
-        total_tasks = db.query(ConversionTask).count()
-        completed_tasks = db.query(ConversionTask).filter(
-            ConversionTask.status == 'COMPLETED'
-        ).count()
-        processing_tasks = db.query(ConversionTask).filter(
-            ConversionTask.status == 'PROCESSING'
-        ).count()
-        pending_tasks = db.query(ConversionTask).filter(
-            ConversionTask.status == 'PENDING'
-        ).count()
-        failed_tasks = db.query(ConversionTask).filter(
-            ConversionTask.status == 'FAILED'
-        ).count()
-        
-        today_tasks = db.query(ConversionTask).filter(
-            func.date(ConversionTask.created_at) == today
-        ).count()
-        
-        total_orders = db.query(Order).count()
-        paid_orders = db.query(Order).filter(Order.status == 'PAID').count()
-        total_revenue = db.query(func.sum(Order.amount)).filter(
-            Order.status == 'PAID'
-        ).scalar() or 0.0
-        
-        today_revenue = db.query(func.sum(Order.amount)).filter(
-            Order.status == 'PAID',
-            func.date(Order.paid_at) == today
-        ).scalar() or 0.0
+        # 计算今日新增用户
+        today = datetime.now().strftime('%Y-%m-%d')
+        today_users = sum(1 for u in all_users if u.get('last_login', '').startswith(today))
         
         # 显示关键指标
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         
         with col1:
             st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-value">{total_users}</div>
-                <div class="metric-label">👥 总用户数</div>
+                <div class="metric-label">总用户数</div>
             </div>
             """, unsafe_allow_html=True)
-            st.metric("今日新增", today_users)
         
         with col2:
             st.markdown(f"""
-            <div class="metric-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);">
-                <div class="metric-value">{total_tasks}</div>
-                <div class="metric-label">📝 总转换任务</div>
+            <div class="metric-card">
+                <div class="metric-value">{today_users}</div>
+                <div class="metric-label">今日新增</div>
             </div>
             """, unsafe_allow_html=True)
-            st.metric("今日任务", today_tasks)
         
         with col3:
             st.markdown(f"""
-            <div class="metric-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);">
-                <div class="metric-value">{format_currency(total_revenue)}</div>
-                <div class="metric-label">💰 总收入</div>
+            <div class="metric-card">
+                <div class="metric-value">{stats['total_tasks']}</div>
+                <div class="metric-label">转换任务</div>
             </div>
             """, unsafe_allow_html=True)
-            st.metric("今日收入", format_currency(today_revenue))
         
-        with col4:
-            success_rate = (completed_tasks / total_tasks * 100) if total_tasks > 0 else 0
-            st.markdown(f"""
-            <div class="metric-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);">
-                <div class="metric-value">{success_rate:.1f}%</div>
-                <div class="metric-label">✅ 成功率</div>
-            </div>
-            """, unsafe_allow_html=True)
-            st.metric("活跃用户", active_users)
+        st.markdown("### 📈 转换任务统计")
         
-        st.markdown("---")
+        # 任务状态分布
+        task_col1, task_col2, task_col3, task_col4 = st.columns(4)
         
-        # 转换任务状态分布
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.info(f"⏳ 待处理: {pending_tasks}")
-        with col2:
-            st.warning(f"🔄 进行中: {processing_tasks}")
-        with col3:
-            st.success(f"✅ 已完成: {completed_tasks}")
-        with col4:
-            st.error(f"❌ 失败: {failed_tasks}")
+        with task_col1:
+            st.metric("✅ 已完成", stats.get('completed_tasks', 0))
         
-        # 最近活动
-        st.markdown("### 🕒 最近活动")
+        with task_col2:
+            st.metric("⏳ 处理中", stats.get('processing_tasks', 0))
         
-        tab1, tab2, tab3 = st.tabs(["最近用户", "最近任务", "最近订单"])
+        with task_col3:
+            st.metric("⏸️ 等待中", stats.get('pending_tasks', 0))
         
-        with tab1:
-            recent_users = db.query(User).order_by(desc(User.created_at)).limit(10).all()
-            if recent_users:
-                user_data = []
-                for user in recent_users:
-                    user_data.append({
-                        "用户ID": str(user.id)[:8] + "...",
-                        "昵称": user.wechat_nickname or user.username or "-",
-                        "剩余段落": user.paragraphs_remaining,
-                        "余额": format_currency(user.balance),
-                        "注册时间": format_datetime(user.created_at)
-                    })
-                st.dataframe(user_data, use_container_width=True, hide_index=True)
-            else:
-                st.info("暂无用户数据")
+        with task_col4:
+            st.metric("❌ 失败", stats.get('failed_tasks', 0))
         
-        with tab2:
-            recent_tasks = db.query(ConversionTask).order_by(
-                desc(ConversionTask.created_at)
-            ).limit(10).all()
-            if recent_tasks:
-                task_data = []
-                for task in recent_tasks:
-                    status_emoji = {
-                        'PENDING': '⏳',
-                        'PROCESSING': '🔄',
-                        'COMPLETED': '✅',
-                        'FAILED': '❌'
-                    }.get(task.status, '❓')
-                    
-                    task_data.append({
-                        "任务ID": task.task_id[:12] + "...",
-                        "文件名": task.filename or "-",
-                        "段落数": task.paragraphs or "-",
-                        "状态": f"{status_emoji} {task.status}",
-                        "进度": f"{task.progress}%",
-                        "创建时间": format_datetime(task.created_at)
-                    })
-                st.dataframe(task_data, use_container_width=True, hide_index=True)
-            else:
-                st.info("暂无任务数据")
+        # 成功率
+        success_rate = 0
+        if stats['total_tasks'] > 0:
+            success_rate = (stats['completed_tasks'] / stats['total_tasks']) * 100
         
-        with tab3:
-            recent_orders = db.query(Order).order_by(desc(Order.created_at)).limit(10).all()
-            if recent_orders:
-                order_data = []
-                for order in recent_orders:
-                    status_emoji = {
-                        'PENDING': '⏳',
-                        'PAID': '✅',
-                        'FAILED': '❌',
-                        'REFUNDED': '↩️'
-                    }.get(order.status, '❓')
-                    
-                    order_data.append({
-                        "订单号": order.order_no[:12] + "...",
-                        "金额": format_currency(order.amount),
-                        "段落数": order.paragraphs,
-                        "套餐": order.package_label or "-",
-                        "状态": f"{status_emoji} {order.status}",
-                        "支付时间": format_datetime(order.paid_at)
-                    })
-                st.dataframe(order_data, use_container_width=True, hide_index=True)
-            else:
-                st.info("暂无订单数据")
-    
-    finally:
-        db.close()
+        st.metric("🎯 成功率", f"{success_rate:.1f}%")
+        
+    except Exception as e:
+        st.error(f"加载数据失败: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # ==================== 用户管理 ====================
 
@@ -251,14 +149,12 @@ def show_user_management():
     st.title("👥 用户管理")
     st.markdown("---")
     
-    db = get_db_session()
-    
     try:
         # 搜索和筛选
         col1, col2, col3 = st.columns([2, 1, 1])
         
         with col1:
-            search_keyword = st.text_input("🔍 搜索用户", placeholder="输入微信OpenID、昵称或用户名")
+            search_keyword = st.text_input("🔍 搜索用户", placeholder="输入用户ID或昵称")
         
         with col2:
             sort_by = st.selectbox("排序方式", ["注册时间", "剩余段落", "余额"])
@@ -266,27 +162,29 @@ def show_user_management():
         with col3:
             show_count = st.selectbox("显示数量", [20, 50, 100], index=0)
         
-        # 构建查询
-        query = db.query(User)
+        # 从JSON加载所有用户数据
+        all_users = load_all_users_data()
         
+        # 搜索过滤
         if search_keyword:
-            query = query.filter(
-                (User.wechat_openid.like(f"%{search_keyword}%")) |
-                (User.wechat_nickname.like(f"%{search_keyword}%")) |
-                (User.username.like(f"%{search_keyword}%"))
-            )
+            filtered_users = [
+                u for u in all_users
+                if search_keyword.lower() in str(u.get('user_id', '')).lower()
+            ]
+        else:
+            filtered_users = all_users
         
         # 排序
         if sort_by == "注册时间":
-            query = query.order_by(desc(User.created_at))
+            filtered_users.sort(key=lambda x: x.get('created_at', ''), reverse=True)
         elif sort_by == "剩余段落":
-            query = query.order_by(desc(User.paragraphs_remaining))
+            filtered_users.sort(key=lambda x: x.get('paragraphs_remaining', 0), reverse=True)
         elif sort_by == "余额":
-            query = query.order_by(desc(User.balance))
+            filtered_users.sort(key=lambda x: x.get('balance', 0.0), reverse=True)
         
         # 分页
-        total = query.count()
-        users = query.limit(show_count).all()
+        total = len(filtered_users)
+        users = filtered_users[:show_count]
         
         st.info(f"共找到 {total} 个用户，显示前 {len(users)} 个")
         
@@ -295,13 +193,13 @@ def show_user_management():
             user_data = []
             for user in users:
                 user_data.append({
-                    "用户ID": str(user.id),
-                    "微信OpenID": user.wechat_openid or "-",
-                    "昵称": user.wechat_nickname or user.username or "-",
-                    "剩余段落": user.paragraphs_remaining,
-                    "余额": user.balance,
-                    "状态": "✅ 活跃" if user.is_active else "❌ 禁用",
-                    "注册时间": format_datetime(user.created_at)
+                    "用户ID": user.get('user_id', '-'),
+                    "剩余段落": user.get('paragraphs_remaining', 0),
+                    "已用段落": user.get('paragraphs_used', 0),
+                    "总转换数": user.get('total_converted', 0),
+                    "余额": user.get('balance', 0.0),
+                    "状态": "✅ 活跃" if user.get('is_active', True) else "❌ 禁用",
+                    "注册时间": format_datetime(user.get('created_at', ''))
                 })
             
             st.dataframe(user_data, use_container_width=True, hide_index=True)
@@ -312,58 +210,49 @@ def show_user_management():
             selected_user_id = st.text_input("输入用户ID进行操作", placeholder="粘贴完整的用户ID")
             
             if selected_user_id:
-                user = db.query(User).filter(User.id == selected_user_id).first()
+                # 查找用户（使用统一数据访问层）
+                from data_manager import load_user_data, save_user_data
+                user_data_dict = load_user_data(selected_user_id)
                 
-                if user:
-                    st.success(f"找到用户: {user.wechat_nickname or user.username}")
+                if user_data_dict:
+                    st.success(f"找到用户: {selected_user_id}")
                     
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2 = st.columns(2)
                     
                     with col1:
                         new_paragraphs = st.number_input(
                             "调整剩余段落",
-                            value=int(user.paragraphs_remaining),
+                            value=int(user_data_dict.get('paragraphs_remaining', 0)),
                             step=100,
                             key=f"para_{selected_user_id}"
                         )
                         if st.button("保存段落数", key=f"save_para_{selected_user_id}"):
-                            user.paragraphs_remaining = new_paragraphs
-                            db.commit()
+                            user_data_dict['paragraphs_remaining'] = new_paragraphs
+                            save_user_data(selected_user_id, user_data_dict)
                             st.success("✅ 段落数已更新")
                             st.rerun()
                     
                     with col2:
                         new_balance = st.number_input(
                             "调整余额",
-                            value=float(user.balance),
+                            value=float(user_data_dict.get('balance', 0.0)),
                             step=1.0,
                             key=f"balance_{selected_user_id}"
                         )
                         if st.button("保存余额", key=f"save_balance_{selected_user_id}"):
-                            user.balance = new_balance
-                            db.commit()
+                            user_data_dict['balance'] = new_balance
+                            save_user_data(selected_user_id, user_data_dict)
                             st.success("✅ 余额已更新")
-                            st.rerun()
-                    
-                    with col3:
-                        new_status = st.selectbox(
-                            "账户状态",
-                            ["活跃", "禁用"],
-                            index=0 if user.is_active else 1,
-                            key=f"status_{selected_user_id}"
-                        )
-                        if st.button("更新状态", key=f"save_status_{selected_user_id}"):
-                            user.is_active = (new_status == "活跃")
-                            db.commit()
-                            st.success("✅ 状态已更新")
                             st.rerun()
                 else:
                     st.error("❌ 未找到该用户")
         else:
             st.warning("未找到匹配的用户")
     
-    finally:
-        db.close()
+    except Exception as e:
+        st.error(f"加载用户数据失败: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # ==================== 转换任务管理 ====================
 
@@ -372,8 +261,6 @@ def show_task_management():
     st.title("📝 转换任务管理")
     st.markdown("---")
     
-    db = get_db_session()
-    
     try:
         # 筛选条件
         col1, col2, col3 = st.columns(3)
@@ -381,7 +268,7 @@ def show_task_management():
         with col1:
             status_filter = st.selectbox(
                 "任务状态",
-                ["全部", "PENDING", "PROCESSING", "COMPLETED", "FAILED"]
+                ["ALL", "PENDING", "PROCESSING", "COMPLETED", "FAILED"]
             )
         
         with col2:
@@ -390,21 +277,21 @@ def show_task_management():
         with col3:
             task_limit = st.selectbox("显示数量", [20, 50, 100], index=0)
         
-        # 构建查询
-        query = db.query(ConversionTask)
+        # 从SQLite获取任务列表
+        all_tasks = get_all_tasks(status_filter=status_filter, limit=1000)
         
-        if status_filter != "全部":
-            query = query.filter(ConversionTask.status == status_filter)
-        
+        # 日期过滤
         if date_filter:
-            query = query.filter(
-                func.date(ConversionTask.created_at) == date_filter
-            )
+            filtered_tasks = [
+                t for t in all_tasks
+                if t.get('created_at', '').startswith(str(date_filter))
+            ]
+        else:
+            filtered_tasks = all_tasks
         
-        query = query.order_by(desc(ConversionTask.created_at))
-        
-        total = query.count()
-        tasks = query.limit(task_limit).all()
+        # 限制显示数量
+        tasks = filtered_tasks[:task_limit]
+        total = len(filtered_tasks)
         
         st.info(f"共找到 {total} 个任务，显示前 {len(tasks)} 个")
         
@@ -416,19 +303,19 @@ def show_task_management():
                     'PROCESSING': '🔄',
                     'COMPLETED': '✅',
                     'FAILED': '❌'
-                }.get(task.status, '❓')
+                }.get(task.get('status', ''), '❓')
                 
                 task_data.append({
-                    "任务ID": task.task_id,
-                    "用户ID": str(task.user_id)[:8] + "...",
-                    "文件名": task.filename or "-",
-                    "段落数": task.paragraphs or "-",
-                    "费用": f"¥{task.cost:.2f}" if task.cost else "-",
-                    "状态": f"{status_emoji} {task.status}",
-                    "进度": f"{task.progress}%",
-                    "错误信息": task.error_message or "-",
-                    "创建时间": format_datetime(task.created_at),
-                    "完成时间": format_datetime(task.completed_at)
+                    "任务ID": task.get('task_id', '-'),
+                    "用户ID": str(task.get('user_id', ''))[:8] + "..." if task.get('user_id') else '-',
+                    "文件名": task.get('filename', '-') or '-',
+                    "段落数": task.get('paragraphs', '-') or '-',
+                    "费用": f"¥{task.get('cost', 0):.2f}" if task.get('cost') else '-',
+                    "状态": f"{status_emoji} {task.get('status', '')}",
+                    "进度": f"{task.get('progress', 0)}%",
+                    "错误信息": task.get('error_message', '-') or '-',
+                    "创建时间": format_datetime(task.get('created_at', '')),
+                    "完成时间": format_datetime(task.get('completed_at', ''))
                 })
             
             st.dataframe(task_data, use_container_width=True, hide_index=True)
@@ -439,233 +326,149 @@ def show_task_management():
             selected_task_id = st.text_input("输入任务ID进行操作", placeholder="粘贴完整的任务ID")
             
             if selected_task_id:
-                task = db.query(ConversionTask).filter(
-                    ConversionTask.task_id == selected_task_id
-                ).first()
+                # 使用统一数据访问层
+                from data_manager import update_task_status
                 
-                if task:
-                    st.success(f"找到任务: {task.filename}")
+                # 查找任务
+                task_found = any(t['task_id'] == selected_task_id for t in all_tasks)
+                
+                if task_found:
+                    st.success(f"找到任务: {selected_task_id}")
                     
                     col1, col2 = st.columns(2)
                     
                     with col1:
                         if st.button("标记为完成", key=f"complete_{selected_task_id}"):
-                            task.status = 'COMPLETED'
-                            task.progress = 100
-                            task.completed_at = datetime.now()
-                            db.commit()
+                            update_task_status(selected_task_id, 'COMPLETED', progress=100)
                             st.success("✅ 任务已标记为完成")
                             st.rerun()
                     
                     with col2:
                         if st.button("标记为失败", key=f"fail_{selected_task_id}"):
-                            task.status = 'FAILED'
-                            db.commit()
+                            update_task_status(selected_task_id, 'FAILED')
                             st.success("✅ 任务已标记为失败")
                             st.rerun()
-                    
-                    if task.error_message:
-                        st.error(f"错误信息: {task.error_message}")
                 else:
                     st.error("❌ 未找到该任务")
         else:
             st.warning("未找到匹配的任务")
     
-    finally:
-        db.close()
+    except Exception as e:
+        st.error(f"加载任务数据失败: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # ==================== 订单管理 ====================
 
 def show_order_management():
-    """显示订单管理"""
+    """显示订单管理（暂未实现）"""
     st.title("💰 订单管理")
     st.markdown("---")
     
-    db = get_db_session()
+    st.info("ℹ️ 订单管理功能暂未实现。当前版本使用本地JSON存储，不支持订单系统。")
+    st.warning("如需订单管理功能，请切换到云端Supabase模式。")
+
+# ==================== 反馈管理 ====================
+
+def show_feedback_management():
+    """显示反馈管理"""
+    st.title("💬 用户反馈管理")
+    st.markdown("---")
     
     try:
-        # 筛选条件
+        # 获取反馈统计
+        stats = get_feedback_stats()
+        
+        # 显示统计信息
         col1, col2, col3 = st.columns(3)
-        
         with col1:
-            status_filter = st.selectbox(
-                "订单状态",
-                ["全部", "PENDING", "PAID", "FAILED", "REFUNDED"]
-            )
-        
+            st.metric("📝 总反馈数", stats.get('total', 0))
         with col2:
-            date_filter = st.date_input("筛选日期", value=None)
-        
+            st.metric("⏳ 待处理", stats.get('pending', 0))
         with col3:
-            order_limit = st.selectbox("显示数量", [20, 50, 100], index=0)
+            st.metric("✅ 已处理", stats.get('processed', 0))
         
-        # 构建查询
-        query = db.query(Order)
+        st.markdown("---")
         
-        if status_filter != "全部":
-            query = query.filter(Order.status == status_filter)
+        # 加载所有反馈
+        all_feedbacks = load_feedbacks()
         
-        if date_filter:
-            query = query.filter(func.date(Order.created_at) == date_filter)
-        
-        query = query.order_by(desc(Order.created_at))
-        
-        total = query.count()
-        orders = query.limit(order_limit).all()
-        
-        st.info(f"共找到 {total} 个订单，显示前 {len(orders)} 个")
-        
-        if orders:
-            order_data = []
-            for order in orders:
-                status_emoji = {
-                    'PENDING': '⏳',
-                    'PAID': '✅',
-                    'FAILED': '❌',
-                    'REFUNDED': '↩️'
-                }.get(order.status, '❓')
-                
-                order_data.append({
-                    "订单号": order.order_no,
-                    "用户ID": str(order.user_id)[:8] + "...",
-                    "金额": format_currency(order.amount),
-                    "段落数": order.paragraphs,
-                    "套餐": order.package_label or "-",
-                    "支付方式": order.payment_method or "-",
-                    "状态": f"{status_emoji} {order.status}",
-                    "交易号": order.transaction_id or "-",
-                    "创建时间": format_datetime(order.created_at),
-                    "支付时间": format_datetime(order.paid_at)
+        if all_feedbacks:
+            # 显示反馈列表
+            feedback_data = []
+            for fb in all_feedbacks:
+                feedback_data.append({
+                    "ID": fb.get('id', '-'),
+                    "用户ID": str(fb.get('user_id', ''))[:12] + "..." if fb.get('user_id') else '-',
+                    "类型": fb.get('type', '-'),
+                    "内容": fb.get('content', '-')[:50] + "..." if len(fb.get('content', '')) > 50 else fb.get('content', '-'),
+                    "状态": "✅ 已处理" if fb.get('processed', False) else "⏳ 待处理",
+                    "提交时间": format_datetime(fb.get('created_at', '')),
                 })
             
-            st.dataframe(order_data, use_container_width=True, hide_index=True)
+            st.dataframe(feedback_data, use_container_width=True, hide_index=True)
             
-            # 订单操作
-            st.markdown("### 🔧 订单操作")
+            # 反馈操作
+            st.markdown("### 🔧 反馈操作")
             
-            selected_order_no = st.text_input("输入订单号进行操作", placeholder="粘贴完整的订单号")
+            selected_feedback_id = st.text_input("输入反馈ID进行操作", placeholder="粘贴完整的反馈ID")
             
-            if selected_order_no:
-                order = db.query(Order).filter(
-                    Order.order_no == selected_order_no
-                ).first()
+            if selected_feedback_id:
+                # 查找反馈
+                feedback_found = next((fb for fb in all_feedbacks if fb.get('id') == selected_feedback_id), None)
                 
-                if order:
-                    st.success(f"找到订单: ¥{order.amount:.2f}")
+                if feedback_found:
+                    st.success(f"找到反馈 ID: {selected_feedback_id}")
+                    
+                    # 显示完整内容
+                    with st.expander("查看完整反馈内容", expanded=True):
+                        st.write(f"**用户ID:** {feedback_found.get('user_id', '-')}")
+                        st.write(f"**类型:** {feedback_found.get('type', '-')}")
+                        st.write(f"**内容:** {feedback_found.get('content', '-')}")
+                        st.write(f"**提交时间:** {format_datetime(feedback_found.get('created_at', ''))}")
+                        st.write(f"**状态:** {'✅ 已处理' if feedback_found.get('processed', False) else '⏳ 待处理'}")
                     
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        if order.status == 'PENDING':
-                            if st.button("标记为已支付", key=f"pay_{selected_order_no}"):
-                                order.status = 'PAID'
-                                order.paid_at = datetime.now()
-                                db.commit()
-                                
-                                # 给用户增加段落数
-                                user = db.query(User).filter(User.id == order.user_id).first()
-                                if user:
-                                    user.paragraphs_remaining += order.paragraphs
-                                    db.commit()
-                                
-                                st.success("✅ 订单已标记为已支付，用户段落数已增加")
+                        if not feedback_found.get('processed', False):
+                            if st.button("标记为已处理", key=f"process_{selected_feedback_id}"):
+                                from comments_manager import save_feedbacks
+                                feedback_found['processed'] = True
+                                # 重新保存
+                                all_fb = load_feedbacks()
+                                for fb in all_fb:
+                                    if fb.get('id') == selected_feedback_id:
+                                        fb['processed'] = True
+                                        break
+                                save_feedbacks(all_fb)
+                                st.success("✅ 已标记为已处理")
                                 st.rerun()
                     
                     with col2:
-                        if order.status == 'PAID':
-                            if st.button("标记为退款", key=f"refund_{selected_order_no}"):
-                                order.status = 'REFUNDED'
-                                db.commit()
-                                
-                                # 扣除用户段落数
-                                user = db.query(User).filter(User.id == order.user_id).first()
-                                if user:
-                                    user.paragraphs_remaining -= order.paragraphs
-                                    db.commit()
-                                
-                                st.success("✅ 订单已标记为退款，用户段落数已扣除")
-                                st.rerun()
+                        if st.button("删除反馈", key=f"delete_{selected_feedback_id}", type="secondary"):
+                            delete_comment(selected_feedback_id)  # 复用删除评论函数
+                            st.success("✅ 反馈已删除")
+                            st.rerun()
                 else:
-                    st.error("❌ 未找到该订单")
+                    st.error("❌ 未找到该反馈")
         else:
-            st.warning("未找到匹配的订单")
+            st.info("📭 暂无用户反馈")
     
-    finally:
-        db.close()
+    except Exception as e:
+        st.error(f"加载反馈数据失败: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
 
 # ==================== 系统配置 ====================
 
 def show_system_config():
-    """显示系统配置"""
+    """显示系统配置（暂未实现）"""
     st.title("⚙️ 系统配置")
     st.markdown("---")
     
-    db = get_db_session()
-    
-    try:
-        # 免费额度配置
-        st.markdown("### 🎁 免费额度配置")
-        
-        config = db.query(SystemConfig).filter(
-            SystemConfig.config_key == "free_paragraphs_on_first_login"
-        ).first()
-        
-        if not config:
-            config = SystemConfig(
-                config_key="free_paragraphs_on_first_login",
-                config_value="10000",
-                description="新用户首次登录赠送的免费段落数"
-            )
-            db.add(config)
-            db.commit()
-            db.refresh(config)
-        
-        col1, col2 = st.columns([1, 2])
-        
-        with col1:
-            new_free_paragraphs = st.number_input(
-                "首次登录赠送段落数",
-                value=int(config.config_value),
-                min_value=0,
-                step=1000,
-                help="新用户微信扫码登录后自动获得的免费段落数"
-            )
-        
-        with col2:
-            if st.button("💾 保存配置", use_container_width=True):
-                if new_free_paragraphs < 0:
-                    st.error("❌ 免费段落数不能为负数")
-                else:
-                    config.config_value = str(new_free_paragraphs)
-                    db.commit()
-                    st.success(f"✅ 配置已更新：新用户首次登录赠送 {new_free_paragraphs} 段")
-                    st.rerun()
-        
-        st.info(f"📝 当前配置说明：{config.description}")
-        st.caption(f"最后更新：{format_datetime(config.updated_at)}")
-        
-        st.markdown("---")
-        
-        # 其他配置项
-        st.markdown("### 📋 所有配置项")
-        
-        all_configs = db.query(SystemConfig).order_by(SystemConfig.config_key).all()
-        
-        if all_configs:
-            config_data = []
-            for cfg in all_configs:
-                config_data.append({
-                    "配置键": cfg.config_key,
-                    "配置值": cfg.config_value,
-                    "说明": cfg.description or "-",
-                    "更新时间": format_datetime(cfg.updated_at)
-                })
-            st.dataframe(config_data, use_container_width=True, hide_index=True)
-        else:
-            st.info("暂无其他配置项")
-    
-    finally:
-        db.close()
+    st.info("ℹ️ 系统配置功能暂未实现。当前版本使用config.py配置文件。")
+    st.warning("如需动态配置管理，请切换到云端Supabase模式。")
 
 # ==================== 主界面 ====================
 
@@ -683,6 +486,7 @@ def main():
                 "📊 数据看板",
                 "👥 用户管理",
                 "📝 转换任务",
+                "💬 用户反馈",
                 "💰 订单管理",
                 "⚙️ 系统配置"
             ],
@@ -700,6 +504,8 @@ def main():
         show_user_management()
     elif page == "📝 转换任务":
         show_task_management()
+    elif page == "💬 用户反馈":
+        show_feedback_management()
     elif page == "💰 订单管理":
         show_order_management()
     elif page == "⚙️ 系统配置":

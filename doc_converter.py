@@ -1917,7 +1917,7 @@ class DocumentConverter:
         """
         # 固定7个步骤，确保进度条能正确填满
         if progress_callback:
-            progress_callback(1, "开始样式转换...")
+            progress_callback(1, "正在进行转换...")
         
         # 步骤1：样式转换
         temp_file_1 = output_file.rsplit('.', 1)[0] + "_temp1.docx"
@@ -1927,31 +1927,31 @@ class DocumentConverter:
             return False, output_file, f"样式转换失败: {msg}"
         
         if progress_callback:
-            progress_callback(2, f"样式转换完成: {msg}")
+            progress_callback(2, "正在进行转换...")
         
         # 步骤2-3：语气转换（占用2个步骤槽位）
         if do_mood:
             if progress_callback:
-                progress_callback(3, "开始语气转换...")
+                progress_callback(3, "正在进行转换...")
             temp_file_2 = output_file.rsplit('.', 1)[0] + "_temp2.docx"
             success, msg = self.convert_mood(temp_file_1, temp_file_2)
             if not success:
                 return False, f"语气转换失败: {msg}"
             if progress_callback:
-                progress_callback(4, f"语气转换完成: {msg}")
+                progress_callback(4, "正在进行转换...")
             os.remove(temp_file_1)  # 清理临时文件
             temp_file_1 = temp_file_2
         else:
             # 跳过语气转换，但仍然占用步骤3和4
             if progress_callback:
-                progress_callback(3, "跳过语气转换")
-                progress_callback(4, "已跳过语气转换")
+                progress_callback(3, "正在进行转换...")
+                progress_callback(4, "正在进行转换...")
         
         # 步骤5-6：插入应答句（占用2个步骤槽位）
         actual_output_file = output_file  # 默认使用原始输出文件名
         if do_answer_insertion:
             if progress_callback:
-                progress_callback(5, "开始插入应答句...")
+                progress_callback(5, "正在进行转换...")
             success, actual_file, msg = self.insert_response_after_headings(
                 temp_file_1, output_file, answer_text, answer_style, mode=answer_mode
             )
@@ -1961,15 +1961,15 @@ class DocumentConverter:
             actual_output_file = actual_file  # 更新为实际文件名
             
             if progress_callback:
-                progress_callback(6, f"插入应答句完成: {msg}")
+                progress_callback(6, "正在进行转换...")
         else:
             # 不插入应答句，直接复制文件，但仍然占用步骤5和6
             if progress_callback:
-                progress_callback(5, "跳过应答句插入")
+                progress_callback(5, "正在进行转换...")
             import shutil
             shutil.copy2(temp_file_1, output_file)
             if progress_callback:
-                progress_callback(6, "已跳过应答句插入")
+                progress_callback(6, "正在进行转换...")
         
         # 清理临时文件
         try:
@@ -1980,7 +1980,7 @@ class DocumentConverter:
         
         # 步骤7：完成
         if progress_callback:
-            progress_callback(7, "转换全部完成！")
+            progress_callback(7, "转换完成！")
         
         return True, actual_output_file, "转换成功完成！"
     

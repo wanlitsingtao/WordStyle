@@ -365,6 +365,37 @@ def load_style_mappings(user_id=None):
     return user_data.get('style_mappings', {})
 
 
+def load_all_users_data():
+    """
+    加载所有用户数据（管理后台使用）
+    :return: 用户数据列表
+    """
+    if not USER_DATA_FILE.exists():
+        return []
+    
+    try:
+        with open(USER_DATA_FILE, 'r', encoding='utf-8') as f:
+            all_data = json.load(f)
+            
+            users = []
+            for user_id, user_data in all_data.items():
+                users.append({
+                    'user_id': user_id,
+                    'balance': user_data.get('balance', 0),
+                    'paragraphs_remaining': user_data.get('paragraphs_remaining', 0),
+                    'paragraphs_used': user_data.get('paragraphs_used', 0),
+                    'total_converted': user_data.get('total_converted', 0),
+                    'is_active': user_data.get('is_active', True),
+                    'created_at': user_data.get('created_at', ''),
+                    'last_login': user_data.get('last_login', ''),
+                })
+            
+            return users
+    except Exception as e:
+        print(f"⚠️ 加载所有用户数据失败: {e}")
+        return []
+
+
 # 测试代码
 if __name__ == "__main__":
     print("⚠️ 用户管理模块需要在Streamlit环境中运行")

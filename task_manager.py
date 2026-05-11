@@ -279,5 +279,149 @@ def has_active_task(user_id):
     """检查用户是否有进行中的任务"""
     return get_user_active_task(user_id) is not None
 
+
+def register_or_login_user(user_id, user_data):
+    """
+    用户首次访问时注册或更新登录时间
+    :param user_id: 用户ID
+    :param user_data: 用户数据字典（从JSON读取）
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    try:
+        # 检查用户是否存在
+        cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (user_id,))
+        exists = cursor.fetchone()
+        
+        if exists:
+            # 更新最后登录时间和用户信息
+            cursor.execute("""
+                UPDATE users 
+                SET balance = ?,
+                    paragraphs_remaining = ?,
+                    total_converted = ?,
+                    total_paragraphs_used = ?,
+                    last_login = CURRENT_TIMESTAMP 
+                WHERE user_id = ?
+            """, (
+                user_data.get('balance', 0.0),
+                user_data.get('paragraphs_remaining', 0),
+                user_data.get('total_converted', 0),
+                user_data.get('paragraphs_used', 0),
+                user_id
+            ))
+        else:
+            # 创建新用户
+            cursor.execute("""
+                INSERT INTO users (
+                    user_id, balance, paragraphs_remaining,
+                    total_converted, total_paragraphs_used,
+                    created_at, last_login
+                ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """, (
+                user_id,
+                user_data.get('balance', 0.0),
+                user_data.get('paragraphs_remaining', 0),
+                user_data.get('total_converted', 0),
+                user_data.get('paragraphs_used', 0)
+            ))
+        
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"⚠️ 注册用户失败: {e}")
+    finally:
+        conn.close()
+
+
+def get_all_tasks(status_filter=None, limit=100, offset=0):
+    """
+    获取所有任务（管理后台使用）
+    :param status_filter: 状态过滤 ('ALL', 'PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')
+    :param limit: 返回数量限制
+    :param offset: 偏移量
+    :return: 任务列表
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # 构建查询
+    if status_filter and status_filter != 'ALL':
+        cursor.execute("""
+            SELECT task_id, user_id, filename, file_count, paragraphs, cost, 
+                   status, progress, created_at, completed_at, error_message
+            FROM conversion_tasks
+            WHERE status = ?
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """, (status_filter, limit, offset))
+    else:
+        cursor.execute("""
+            SELECT task_id, user_id, filename, file_count, paragraphs, cost, 
+                   status, progress, created_at, completed_at, error_message
+            FROM conversion_tasks
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """, (limit, offset))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    tasks = []
+    for row in rows:
+        tasks.append({
+            'task_id': row[0],
+            'user_id': row[1],
+            'filename': row[2],
+            'file_count': row[3],
+            'paragraphs': row[4],
+            'cost': row[5],
+            'status': row[6],
+            'progress': row[7],
+            'created_at': row[8],
+            'completed_at': row[9],
+            'error_message': row[10],
+        })
+    
+    return tasks
+
+
+def get_task_stats():
+    """
+    获取任务统计信息（管理后台使用）
+    :return: 统计字典
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # 总任务数
+    cursor.execute("SELECT COUNT(*) FROM conversion_tasks")
+    total = cursor.fetchone()[0]
+    
+    # 各状态任务数
+    cursor.execute("SELECT COUNT(*) FROM conversion_tasks WHERE status = 'COMPLETED'")
+    completed = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM conversion_tasks WHERE status = 'PROCESSING'")
+    processing = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM conversion_tasks WHERE status = 'PENDING'")
+    pending = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM conversion_tasks WHERE status = 'FAILED'")
+    failed = cursor.fetchone()[0]
+    
+    conn.close()
+    
+    return {
+        'total_tasks': total,
+        'completed_tasks': completed,
+        'processing_tasks': processing,
+        'pending_tasks': pending,
+        'failed_tasks': failed,
+    }
+
+
 # 初始化数据库
 init_database()

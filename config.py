@@ -15,6 +15,16 @@ DATA_DIR = BASE_DIR / "data"
 RESULTS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
+# ==================== 数据源配置 ====================
+# 自动检测环境：云端使用 Supabase，本地使用 SQLite
+USE_SUPABASE = os.getenv("USE_SUPABASE", "false").lower() == "true"
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+if USE_SUPABASE and DATABASE_URL:
+    DATA_SOURCE = "supabase"  # 云端模式
+else:
+    DATA_SOURCE = "local"     # 本地模式（SQLite + JSON）
+
 # ==================== 计费配置 ====================
 # 计费规则：100个段落 = 0.1元
 PARAGRAPH_PRICE = 0.001  # 每个段落的价格（元）
