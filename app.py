@@ -1609,9 +1609,9 @@ def show_style_mapping_dialog():
     
     # 初始化或加载样式映射（按文件分别存储）
     if 'file_style_mappings' not in st.session_state:
-        # 从持久化存储加载
-        from data_manager import load_user_data, save_user_data
-        st.session_state.file_style_mappings = load_style_mappings()
+        # 从用户数据中加载样式映射
+        user_data = load_user_data(st.session_state.user_id)
+        st.session_state.file_style_mappings = user_data.get('style_mappings', {})
     
     # 如果有多个文件，先选择要配置的文件
     selected_file = None
