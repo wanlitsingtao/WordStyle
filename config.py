@@ -27,8 +27,16 @@ def _load_config_from_secrets():
         # 检查是否在 Streamlit 环境中
         if hasattr(st, 'secrets') and len(st.secrets) > 0:
             secrets = st.secrets
+            
+            # 处理 USE_SUPABASE：支持布尔值和字符串
+            use_supabase_raw = secrets.get('USE_SUPABASE', False)
+            if isinstance(use_supabase_raw, bool):
+                use_supabase = use_supabase_raw
+            else:
+                use_supabase = str(use_supabase_raw).lower() == 'true'
+            
             return {
-                'use_supabase': secrets.get('USE_SUPABASE', '').lower() == 'true',
+                'use_supabase': use_supabase,
                 'database_url': secrets.get('DATABASE_URL'),
                 'backend_url': secrets.get('BACKEND_URL')
             }
