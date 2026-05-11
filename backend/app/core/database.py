@@ -22,30 +22,25 @@ elif settings.DATABASE_URL.startswith("postgresql"):
     original_url = settings.DATABASE_URL
     final_url = original_url
     
-    # 检测 Supabase 连接池器地址（可能因网络限制无法访问）
+    # 检测 Supabase 连接池器地址
     if "pooler.supabase.com" in original_url:
-        # 尝试从连接池器地址转换为直连地址
-        # 连接池器格式: {project_id}.pooler.supabase.com:6543
-        # 直连格式: db.{project_id}.supabase.co:5432
-        if ".pooler.supabase.com" in original_url:
-            # 提取项目 ID
-            host_part = original_url.split("@")[-1].split(":")[0]  # 如: cgfdhubkklpyvjgezeeq.pooler.supabase.com
-            project_id = host_part.replace(".pooler.supabase.com", "")
-            
-            # 提取用户名（连接池器格式: postgres.{project_id}）
-            user_part = original_url.split("://")[1].split("@")[0]
-            # 转换为直连用户名
-            direct_user = user_part.replace(f"postgres.{project_id}", "postgres")
-            
-            # 构建直连 URL
-            final_url = original_url.replace(
-                f"{project_id}.pooler.supabase.com:6543",
-                f"db.{project_id}.supabase.co:5432"
-            ).replace(f"{user_part}@", f"{direct_user}@")
-            
-            logger.info(f"✅ 检测到 Supabase 连接池器，自动切换为直连地址（Streamlit Cloud 兼容）")
-            logger.info(f"   池化 URL: {original_url[:60]}...")
-            logger.info(f"   直连 URL: {final_url[:60]}...")
+        # 从连接池器地址转换为直连地址
+        # 连接池器: {project_id}.pooler.supabase.com:6543
+        # 直连: db.{project_id}.supabase.co:5432
+        host_part = original_url.split("@")[-1].split(":")[0]
+        project_id = host_part.replace(".pooler.supabase.com", "")
+        
+        # 用户名转换
+        user_part = original_url.split("://")[1].split("@")[0]
+        direct_user = user_part.replace(f"postgres.{project_id}", "postgres")
+        
+        # 构建直连 URL
+        final_url = original_url.replace(
+            f"{project_id}.pooler.supabase.com:6543",
+            f"db.{project_id}.supabase.co:5432"
+        ).replace(f"{user_part}@", f"{direct_user}@")
+        
+        logger.info(f"✅ 检测到连接池器地址，自动切换为直连地址（Streamlit Cloud 兼容）")
     
     # 情况 2: 已经是连接池器但端口错误 (*.pooler.supabase.com:5432)
     elif "pooler.supabase.com:5432" in original_url:
