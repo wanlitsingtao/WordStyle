@@ -18,32 +18,34 @@ final_url = settings.DATABASE_URL
 if settings.DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 elif settings.DATABASE_URL.startswith("postgresql"):
-    # Supabase 环境配置：自动切换到连接池器（PgBouncer）
+    # Supabase 环境配置：自动处理连接池器
     original_url = settings.DATABASE_URL
     final_url = original_url
     
-    # 情况 1: 直接数据库连接 (db.{ref}.supabase.co:5432)
-    if "supabase.co" in original_url and ":5432" in original_url:
-        # 提取项目名称（数据库主机名中的标识符）
-        host_part = original_url.split("@")[-1].split("/")[0].split(":")[0]  # 去除端口号
-        project_id = host_part.replace("db.", "").replace(".supabase.co", "")
+    # 检测 Supabase 连接池器地址（可能因网络限制无法访问）
+    if "pooler.supabase.com" in original_url:
+        # 尝试从连接池器地址转换为直连地址
+        # 连接池器格式: {project_id}.pooler.supabase.com:6543
+        # 直连格式: db.{project_id}.supabase.co:5432
+        if ".pooler.supabase.com" in original_url:
+            # 提取项目 ID
+            host_part = original_url.split("@")[-1].split(":")[0]  # 如: cgfdhubkklpyvjgezeeq.pooler.supabase.com
+            project_id = host_part.replace(".pooler.supabase.com", "")
             
-        # 提取用户名并添加项目 ID 前缀（Supabase 连接池器要求）
-        user_part = original_url.split("://")[1].split("@")[0]
-        # 如果用户名不是 postgres.<project_id> 格式，则添加前缀
-        if not user_part.startswith(f"postgres.{project_id}"):
-            new_user = f"postgres.{project_id}"
-            original_url = original_url.replace(f"://{user_part}@", f"://{new_user}@")
-            logger.info(f"✅ 连接池器用户名已转换: {user_part} -> {new_user}")
+            # 提取用户名（连接池器格式: postgres.{project_id}）
+            user_part = original_url.split("://")[1].split("@")[0]
+            # 转换为直连用户名
+            direct_user = user_part.replace(f"postgres.{project_id}", "postgres")
             
-        # 动态获取连接池器地址（根据原始 URL 中的区域或默认使用通用地址）
-        # 注意：不同区域的 Supabase 项目可能对应不同的 Pooler 域名
-        # 这里我们尝试从原始 URL 提取区域，如果失败则使用通用的 pooler 地址
-        final_url = original_url.replace(
-            f"db.{project_id}.supabase.co:5432",
-            f"{project_id}.pooler.supabase.com:6543"
-        )
-        logger.info(f"✅ 检测到 Supabase 直接连接，自动切换为连接池器")
+            # 构建直连 URL
+            final_url = original_url.replace(
+                f"{project_id}.pooler.supabase.com:6543",
+                f"db.{project_id}.supabase.co:5432"
+            ).replace(f"{user_part}@", f"{direct_user}@")
+            
+            logger.info(f"✅ 检测到 Supabase 连接池器，自动切换为直连地址（Streamlit Cloud 兼容）")
+            logger.info(f"   池化 URL: {original_url[:60]}...")
+            logger.info(f"   直连 URL: {final_url[:60]}...")
     
     # 情况 2: 已经是连接池器但端口错误 (*.pooler.supabase.com:5432)
     elif "pooler.supabase.com:5432" in original_url:
@@ -53,7 +55,7 @@ elif settings.DATABASE_URL.startswith("postgresql"):
     
     if final_url != original_url:
         logger.info(f"   原始 URL: {settings.DATABASE_URL[:60]}...")
-        logger.info(f"   池化 URL: {final_url[:60]}...")
+        logger.info(f"   最终 URL: {final_url[:60]}...")
 
 logger.info(f"🔗 数据库引擎创建 - URL: {final_url[:60]}...")
 engine = create_engine(final_url, connect_args=connect_args)
