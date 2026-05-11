@@ -17,14 +17,29 @@ from data_manager import (
     get_all_tasks,
     get_task_stats,
     load_all_users_data,
-    get_data_source
+    get_data_source,
+    DATA_SOURCE as ACTUAL_DATA_SOURCE
 )
 from comments_manager import load_feedbacks, get_feedback_stats, delete_comment
-from config import DATA_SOURCE, DATABASE_URL
+from config import DATA_SOURCE as CONFIG_DATA_SOURCE, DATABASE_URL
 
 # 在页面顶部显示数据源配置信息（用于调试）
-st.sidebar.info(f"📊 数据源: {get_data_source()}")
-st.sidebar.info(f" DB URL: {'已配置' if DATABASE_URL else '未配置'}")
+st.sidebar.info(f"数据源: {get_data_source()}")
+st.sidebar.info(f"DB URL: {'已配置' if DATABASE_URL else '未配置'}")
+
+# 显示详细诊断信息
+with st.sidebar.expander("诊断信息"):
+    st.write(f"**CONFIG_DATA_SOURCE**: {CONFIG_DATA_SOURCE}")
+    st.write(f"**ACTUAL_DATA_SOURCE**: {ACTUAL_DATA_SOURCE}")
+    st.write(f"**get_data_source()**: {get_data_source()}")
+    if DATABASE_URL:
+        # 显示部分URL用于调试（隐藏密码）
+        parts = DATABASE_URL.split('@')
+        if len(parts) == 2:
+            safe_url = f"{parts[0].split(':')[0]}://***@{parts[1][:30]}..."
+        else:
+            safe_url = "***"
+        st.write(f"**数据库连接**: {safe_url}")
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -169,8 +184,15 @@ def show_user_management():
             show_count = st.selectbox("显示数量", [20, 50, 100], index=0)
         
         # 加载所有用户数据
-        all_users = load_all_users_data()
-        st.success(f" 从数据库加载了 {len(all_users)} 个用户")
+        with st.spinner("正在从数据库加载用户数据..."):
+            try:
+                all_users = load_all_users_data()
+                st.success(f" 从数据库加载了 {len(all_users)} 个用户")
+            except Exception as e:
+                st.error(f"加载用户数据失败: {e}")
+                import traceback
+                st.code(traceback.format_exc())
+                all_users = []
         
         # 如果是Supabase模式，显示原始数据供调试
         if get_data_source() == 'supabase' and len(all_users) > 0:

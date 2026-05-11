@@ -415,7 +415,30 @@ elif DATA_SOURCE == "supabase":
         print(f"✅ 数据访问层初始化：Supabase 模式 (PostgreSQL)")
     
     except ImportError as e:
-        print(f"⚠️ Supabase 模式初始化失败: {e}")
+        import traceback
+        error_msg = f"Supabase 模式初始化失败: {e}"
+        print(f"️ {error_msg}")
+        print(f"   详细错误: {traceback.format_exc()}")
+        print("   回退到本地模式")
+        DATA_SOURCE = "local"
+        from user_manager import (
+            load_user_data as _load_user,
+            save_user_data as _save_user,
+            load_all_users_data as _load_all_users,
+        )
+        from task_manager import (
+            create_task as _create_task,
+            complete_task as _complete_task,
+            fail_task as _fail_task,
+            get_all_tasks as _get_all_tasks,
+            get_task_stats as _get_task_stats,
+            register_or_login_user as _register_user,
+        )
+    except Exception as e:
+        import traceback
+        error_msg = f"Supabase 模式初始化异常: {e}"
+        print(f"️ {error_msg}")
+        print(f"   详细错误: {traceback.format_exc()}")
         print("   回退到本地模式")
         DATA_SOURCE = "local"
         from user_manager import (
