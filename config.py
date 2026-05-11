@@ -35,9 +35,51 @@ def _load_config_from_secrets():
             else:
                 use_supabase = str(use_supabase_raw).lower() == 'true'
             
+            # 获取 DATABASE_URL 并进行转换
+            database_url = secrets.get('DATABASE_URL')
+            
+            # 自动转换连接池器为直连地址（Streamlit Cloud 兼容）
+            if database_url and database_url.startswith("postgresql"):
+                if "pooler.supabase.com" in database_url:
+                    try:
+                        from urllib.parse import urlparse, urlunparse
+                        parsed = urlparse(database_url)
+                        
+                        # 提取项目 ID
+                        hostname = parsed.hostname or ""
+                        project_id = hostname.replace(".pooler.supabase.com", "")
+                        
+                        # 新主机名: db.{project_id}.supabase.co
+                        new_hostname = f"db.{project_id}.supabase.co"
+                        new_port = 5432
+                        
+                        # 用户名转换: postgres.{project_id} -> postgres
+                        username = parsed.username or "postgres"
+                        new_username = username.replace(f"postgres.{project_id}", "postgres")
+                        
+                        # 构建新 URL
+                        new_netloc = f"{new_username}"
+                        if parsed.password:
+                            new_netloc += f":{parsed.password}"
+                        new_netloc += f"@{new_hostname}:{new_port}"
+                        
+                        # 重建 URL
+                        database_url = urlunparse((
+                            parsed.scheme,
+                            new_netloc,
+                            parsed.path,
+                            parsed.params,
+                            parsed.query,
+                            parsed.fragment
+                        ))
+                        
+                        print(f"✅ 自动转换连接池器为直连地址（Streamlit Cloud 兼容）")
+                    except Exception as e:
+                        print(f"️ URL 转换失败: {e}，使用原始 URL")
+            
             return {
                 'use_supabase': use_supabase,
-                'database_url': secrets.get('DATABASE_URL'),
+                'database_url': database_url,
                 'backend_url': secrets.get('BACKEND_URL')
             }
     except Exception:
