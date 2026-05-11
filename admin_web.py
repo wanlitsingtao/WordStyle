@@ -150,6 +150,9 @@ def show_user_management():
     st.markdown("---")
     
     try:
+        # 显示当前数据源信息（调试用）
+        st.info(f"📊 当前数据源: {get_data_source()}")
+        
         # 搜索和筛选
         col1, col2, col3 = st.columns([2, 1, 1])
         
@@ -162,8 +165,14 @@ def show_user_management():
         with col3:
             show_count = st.selectbox("显示数量", [20, 50, 100], index=0)
         
-        # 从JSON加载所有用户数据
+        # 加载所有用户数据
         all_users = load_all_users_data()
+        st.success(f" 从数据库加载了 {len(all_users)} 个用户")
+        
+        # 如果是Supabase模式，显示原始数据供调试
+        if get_data_source() == 'supabase' and len(all_users) > 0:
+            with st.expander(" 查看原始数据（调试）"):
+                st.json(all_users[:2])  # 只显示前2个用户的数据
         
         # 搜索过滤
         if search_keyword:
@@ -248,6 +257,10 @@ def show_user_management():
                     st.error("❌ 未找到该用户")
         else:
             st.warning("未找到匹配的用户")
+            
+            # 如果是 Supabase 模式但没有用户，给出提示
+            if get_data_source() == 'supabase':
+                st.info("💡 提示：数据库中没有用户数据。如果转换页面有用户，说明数据源配置可能不一致。请检查：1. 管理后台和转换页面是否使用同一个数据库 2. 管理后台的 USE_SUPABASE 和 DATABASE_URL 环境变量是否正确")
     
     except Exception as e:
         st.error(f"加载用户数据失败: {str(e)}")

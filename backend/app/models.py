@@ -52,6 +52,7 @@ class User(Base):
     # 统计字段
     total_paragraphs_used = Column(Integer, default=0)  # 累计使用的段落数
     total_converted = Column(Integer, default=0)  # 累计转换的文件数
+    last_login = Column(DateTime(timezone=True))  # 最后登录时间
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
