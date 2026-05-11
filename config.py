@@ -17,6 +17,7 @@ DATA_DIR.mkdir(exist_ok=True)
 
 # ==================== 数据源配置 ====================
 # 自动检测环境：云端使用 Supabase，本地使用 SQLite
+# Streamlit Cloud Secrets 会在部署时自动加载为环境变量
 USE_SUPABASE = os.getenv("USE_SUPABASE", "false").lower() == "true"
 DATABASE_URL = os.getenv("DATABASE_URL")
 
