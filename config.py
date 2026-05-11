@@ -100,9 +100,6 @@ RECHARGE_PACKAGES = [
 # ==================== 免费额度配置 ====================
 FREE_PARAGRAPHS_DAILY = 10000  # 每日免费段落数
 
-# ==================== 后端API配置 ====================
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")  # 后端API地址
-
 # ==================== 管理员配置 ====================
 ADMIN_CONTACT = os.getenv("ADMIN_CONTACT", "微信号：your_wechat_id")  # 管理员联系方式
 
