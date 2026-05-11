@@ -11,6 +11,8 @@ def _load_database_url():
     """
     加载 DATABASE_URL，优先从 Streamlit Secrets 读取，并自动转换连接池器为直连地址
     """
+    from urllib.parse import urlparse, urlunparse, parse_qs, urlencode
+    
     database_url = None
     
     # 1. 尝试从 Streamlit Secrets 读取
@@ -21,28 +23,56 @@ def _load_database_url():
             if secrets_db_url:
                 database_url = secrets_db_url
                 print(f"✅ 从 Streamlit Secrets 加载 DATABASE_URL")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"⚠️ 读取 Streamlit Secrets 失败: {e}")
     
     # 2. 从环境变量读取
     if not database_url:
         database_url = os.getenv("DATABASE_URL", "sqlite:///./wordstyle.db")
-        print(f"️ 从环境变量加载 DATABASE_URL")
+        print(f"📝 从环境变量加载 DATABASE_URL")
     
     # 3. 自动转换连接池器为直连地址（Streamlit Cloud 兼容）
     if database_url and database_url.startswith("postgresql"):
         if "pooler.supabase.com" in database_url:
-            host_part = database_url.split("@")[-1].split(":")[0]
-            project_id = host_part.replace(".pooler.supabase.com", "")
-            user_part = database_url.split("://")[1].split("@")[0]
-            direct_user = user_part.replace(f"postgres.{project_id}", "postgres")
-            
-            database_url = database_url.replace(
-                f"{project_id}.pooler.supabase.com:6543",
-                f"db.{project_id}.supabase.co:5432"
-            ).replace(f"{user_part}@", f"{direct_user}@")
-            
-            print(f"✅ 自动转换连接池器为直连地址（Streamlit Cloud 兼容）")
+            try:
+                # 使用 urlparse 解析 URL
+                parsed = urlparse(database_url)
+                
+                # 提取项目 ID
+                # hostname: cgfdhubkklpyvjgezeeq.pooler.supabase.com
+                hostname = parsed.hostname or ""
+                project_id = hostname.replace(".pooler.supabase.com", "")
+                
+                # 新主机名: db.{project_id}.supabase.co
+                new_hostname = f"db.{project_id}.supabase.co"
+                
+                # 新端口: 5432
+                new_port = 5432
+                
+                # 用户名转换: postgres.{project_id} -> postgres
+                username = parsed.username or "postgres"
+                new_username = username.replace(f"postgres.{project_id}", "postgres")
+                
+                # 构建新 URL
+                new_netloc = f"{new_username}"
+                if parsed.password:
+                    new_netloc += f":{parsed.password}"
+                new_netloc += f"@{new_hostname}:{new_port}"
+                
+                # 重建 URL
+                database_url = urlunparse((
+                    parsed.scheme,
+                    new_netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment
+                ))
+                
+                print(f"✅ 自动转换连接池器为直连地址（Streamlit Cloud 兼容）")
+                print(f"   原始: {database_url[:60]}...")
+            except Exception as e:
+                print(f"⚠️ URL 转换失败: {e}，使用原始 URL")
     
     return database_url
 
