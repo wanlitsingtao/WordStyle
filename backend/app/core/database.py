@@ -20,6 +20,9 @@ if settings.DATABASE_URL.startswith("sqlite"):
 elif settings.DATABASE_URL.startswith("postgresql"):
     # Supabase 环境配置：自动切换到连接池器（PgBouncer）
     original_url = settings.DATABASE_URL
+    final_url = original_url
+    
+    # 情况 1: 直接数据库连接 (db.{ref}.supabase.co:5432)
     if "supabase.co" in original_url and ":5432" in original_url:
         # 提取项目名称（数据库主机名中的标识符）
         host_part = original_url.split("@")[-1].split("/")[0].split(":")[0]  # 去除端口号
@@ -41,6 +44,14 @@ elif settings.DATABASE_URL.startswith("postgresql"):
             f"{project_id}.pooler.supabase.com:6543"
         )
         logger.info(f"✅ 检测到 Supabase 直接连接，自动切换为连接池器")
+    
+    # 情况 2: 已经是连接池器但端口错误 (*.pooler.supabase.com:5432)
+    elif "pooler.supabase.com:5432" in original_url:
+        # 只需修正端口号
+        final_url = original_url.replace(":5432", ":6543")
+        logger.info(f"✅ 检测到连接池器端口错误，已修正为 6543")
+    
+    if final_url != original_url:
         logger.info(f"   原始 URL: {settings.DATABASE_URL[:60]}...")
         logger.info(f"   池化 URL: {final_url[:60]}...")
 
