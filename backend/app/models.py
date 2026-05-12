@@ -38,7 +38,7 @@ class User(Base):
     """用户模型"""
     __tablename__ = "users"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(String(12), primary_key=True)  # 使用12位字符串作为用户ID
     # 微信扫码登录相关字段
     wechat_openid = Column(String(128), unique=True, nullable=True, index=True)  # 微信OpenID
     wechat_nickname = Column(String(100))  # 微信昵称
@@ -66,7 +66,7 @@ class Order(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     order_no = Column(String(64), unique=True, nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(String(12), ForeignKey("users.id"), nullable=False)  # 与 User.id 类型一致
     amount = Column(Float, nullable=False)
     paragraphs = Column(Integer, nullable=False)
     package_label = Column(String(100))
@@ -85,7 +85,7 @@ class ConversionTask(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     task_id = Column(String(64), unique=True, nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    user_id = Column(String(12), ForeignKey("users.id"), nullable=False)  # 与 User.id 类型一致
     filename = Column(String(255))
     paragraphs = Column(Integer)
     cost = Column(Float)

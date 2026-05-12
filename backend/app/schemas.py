@@ -22,7 +22,7 @@ class UserLogin(BaseModel):
 
 class UserResponse(BaseModel):
     """用户信息响应"""
-    id: UUID
+    id: str  # 使用字符串类型的用户ID
     email: str
     username: Optional[str]
     balance: float
@@ -81,7 +81,7 @@ class CreateOrderRequest(BaseModel):
 class OrderResponse(BaseModel):
     """订单响应"""
     order_no: str
-    user_id: UUID
+    user_id: str  # 使用字符串类型的用户ID
     amount: float
     paragraphs: int
     package_label: Optional[str]
@@ -112,7 +112,7 @@ class StartConversionRequest(BaseModel):
 class ConversionTaskResponse(BaseModel):
     """转换任务响应"""
     task_id: str
-    user_id: UUID
+    user_id: str  # 使用字符串类型的用户ID
     filename: str
     paragraphs: Optional[int]
     cost: Optional[float]
