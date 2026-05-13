@@ -288,17 +288,32 @@ if 'user_id' not in st.session_state:
             logger.info(f"已保存设备指纹映射: {device_fingerprint} -> {new_user_id}")
         except Exception as e:
             logger.error(f"保存用户映射文件失败: {e}")
+            logger.warning("⚠️ 云端环境无法持久化 user_mapping.json，每次重启会生成新ID")
         
         # 使用统一数据接口（data_manager 已在顶部导入）
         
         # 先加载用户数据（使用统一数据接口）
         user_data = load_user_data(new_user_id)
         
+        # 如果是新用户，初始化用户数据
+        if not user_data:
+            from datetime import datetime
+            user_data = {
+                'user_id': new_user_id,
+                'balance': 0.0,
+                'paragraphs_remaining': 0,
+                'total_paragraphs_used': 0,
+                'total_converted': 0,
+                'is_active': True,
+                'created_at': datetime.now().isoformat(),
+                'last_login': datetime.now().isoformat(),
+            }
+        
         # 自动领取免费额度（使用统一数据接口）
         free_paragraphs = claim_free_paragraphs(new_user_id)
         
-        # 注册用户数据（同步到数据库/JSON）
-        register_or_login_user(new_user_id, load_user_data(new_user_id))
+        # ✅ 修复：注册用户数据时传递正确的 user_data
+        register_or_login_user(new_user_id, user_data)
         
         logger.info(f"新用户 {new_user_id} 已创建并领取 {free_paragraphs} 免费段落")
 
