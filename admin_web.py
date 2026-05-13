@@ -96,8 +96,26 @@ def show_dashboard():
         # 获取统计数据（从统一数据访问层）
         stats = get_task_stats()
         
+        # 调试信息：检查 stats 是否为空
+        if not stats:
+            st.warning("⚠️ 无法获取任务统计数据，请检查后端服务是否正常运行")
+            st.info(f"当前数据源: {get_data_source()}")
+            if get_data_source() == 'api':
+                from config import BACKEND_URL
+                st.info(f"后端地址: {BACKEND_URL}")
+                st.error("请确认后端服务已启动并可访问")
+        
         # 获取用户总数（从 JSON/Supabase）
         all_users = load_all_users_data()
+        
+        # 调试信息：检查用户数据
+        if not all_users:
+            st.warning("⚠️ 未找到用户数据")
+            st.info(f"当前数据源: {get_data_source()}")
+            if get_data_source() == 'api':
+                from config import BACKEND_URL
+                st.info(f"后端地址: {BACKEND_URL}")
+                st.error("请确认：1) 后端服务已启动 2) 数据库中有用户数据")
         total_users = len(all_users)
         
         # 计算今日新增用户
@@ -126,7 +144,7 @@ def show_dashboard():
         with col3:
             st.markdown(f"""
             <div class="metric-card">
-                <div class="metric-value">{stats['total_tasks']}</div>
+                <div class="metric-value">{stats.get('total_tasks', 0)}</div>
                 <div class="metric-label">转换任务</div>
             </div>
             """, unsafe_allow_html=True)
