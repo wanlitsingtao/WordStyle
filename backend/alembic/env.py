@@ -24,7 +24,9 @@ if config.config_file_name is not None:
 # 从环境变量读取 DATABASE_URL（优先于 alembic.ini 中的配置）
 database_url = os.getenv('DATABASE_URL')
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    # 转义百分号，避免 configparser 的插值语法错误
+    escaped_url = database_url.replace('%', '%%')
+    config.set_main_option("sqlalchemy.url", escaped_url)
     print(f"✅ Alembic 使用环境变量 DATABASE_URL")
 else:
     print(f"⚠️ 未找到 DATABASE_URL 环境变量，使用 alembic.ini 中的配置")
