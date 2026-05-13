@@ -501,7 +501,12 @@ elif DATA_SOURCE == "api":
                 response.raise_for_status()
                 return response.json()
             except Exception as e:
-                print(f"️ API 请求失败: {method.upper()} {endpoint} - {e}")
+                print(f"❌ API 请求失败: {method.upper()} {endpoint}")
+                print(f"   URL: {BACKEND_URL}/api/admin{endpoint}")
+                print(f"   错误: {e}")
+                if 'response' in locals():
+                    print(f"   状态码: {response.status_code}")
+                    print(f"   响应内容: {response.text[:200]}")
                 return {}
         
         def _load_user(user_id: str) -> Dict[str, Any]:
