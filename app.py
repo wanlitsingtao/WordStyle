@@ -212,83 +212,55 @@ def show_history_dialog():
 # 策略：使用IP地址 + User-Agent组合作为设备指纹，确保同一终端始终使用相同用户ID
 # 优势：同一终端的所有浏览器会话共享同一用户ID，关闭后重新打开也能恢复
 
+# 初始化用户ID（使用 localStorage 持久化）
 if 'user_id' not in st.session_state:
     import hashlib
-    import json
-    from pathlib import Path
     
-    # 获取客户端IP地址和User-Agent作为设备标识
+    # 🔧 关键修复：优先从 localStorage 恢复用户ID
+    # 这是唯一能在 Streamlit Cloud 环境保证持久化的方案
+    saved_user_id = None
     try:
-        # 尝试从Streamlit上下文获取客户端信息
-        headers = st.context.headers if hasattr(st, 'context') and hasattr(st.context, 'headers') else {}
-        
-        # 获取IP地址（优先使用X-Forwarded-For，否则使用remote_addr）
-        client_ip = headers.get('X-Forwarded-For', '').split(',')[0].strip()
-        if not client_ip:
-            client_ip = headers.get('X-Real-IP', '')
-        if not client_ip:
-            # 本地开发时使用localhost
-            client_ip = '127.0.0.1'
-        
-        # 获取User-Agent
-        user_agent = headers.get('User-Agent', 'unknown')
-        
-        # 生成设备指纹（IP + User-Agent的组合哈希）
-        device_key = f"{client_ip}|{user_agent}"
-        device_fingerprint = hashlib.md5(device_key.encode()).hexdigest()[:16]
-        
-        logger.info(f"检测到客户端 - IP: {client_ip}, User-Agent: {user_agent[:50]}...")
+        from streamlit_javascript import st_javascript
+        # 尝试从 localStorage 读取已保存的用户ID
+        saved_user_id = st_javascript("localStorage.getItem('wordstyle_user_id')")
+        if saved_user_id and len(saved_user_id) == 12:
+            st.session_state.user_id = saved_user_id
+            logger.info(f"✅ 从 localStorage 恢复用户ID: {saved_user_id}")
+        else:
+            raise Exception("localStorage 中无有效用户ID")
     except Exception as e:
-        # 如果无法获取客户端信息，使用备用方案
-        logger.warning(f"无法获取客户端信息: {e}，使用备用方案")
-        import socket
+        logger.warning(f"无法从 localStorage 读取用户ID: {e}，将生成新ID")
+        
+        # 获取客户端设备指纹
         try:
-            hostname = socket.gethostname()
-        except:
-            hostname = "default"
-        device_fingerprint = hashlib.md5(f"fallback_{hostname}".encode()).hexdigest()[:16]
-    
-    # 从本地文件读取该设备对应的用户ID
-    user_mapping_file = Path(__file__).parent / "user_mapping.json"
-    existing_user_id = None
-    
-    try:
-        if user_mapping_file.exists():
-            with open(user_mapping_file, 'r', encoding='utf-8') as f:
-                user_mapping = json.load(f)
-                if device_fingerprint in user_mapping:
-                    existing_user_id = user_mapping[device_fingerprint]
-                    logger.info(f"从映射文件恢复用户ID: {existing_user_id}")
-    except Exception as e:
-        logger.error(f"读取用户映射文件失败: {e}")
-    
-    if existing_user_id:
-        # 使用已存在的用户ID
-        st.session_state.user_id = existing_user_id
-        logger.info(f"恢复已有用户ID: {existing_user_id}")
-    else:
-        # 生成新的用户ID（基于设备指纹，确保同一终端稳定性）
+            client_ip = st.context.headers.get('X-Forwarded-For', '127.0.0.1').split(',')[0].strip()
+            user_agent = st.context.headers.get('User-Agent', 'unknown')
+            device_fingerprint = hashlib.md5(f"{client_ip}|{user_agent}".encode()).hexdigest()[:16]
+            logger.info(f"检测到客户端 - IP: {client_ip}, User-Agent: {user_agent[:50]}...")
+        except Exception as e:
+            logger.warning(f"无法获取客户端信息: {e}，使用备用方案")
+            import socket
+            try:
+                hostname = socket.gethostname()
+            except:
+                hostname = "default"
+            device_fingerprint = hashlib.md5(f"fallback_{hostname}".encode()).hexdigest()[:16]
+        
+        # 生成新的用户ID（基于设备指纹）
         unique_key = f"wordstyle_device_{device_fingerprint}"
         new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
         st.session_state.user_id = new_user_id
         logger.info(f"生成新用户ID: {new_user_id} (device: {device_fingerprint})")
         
-        # ✅ 保存设备指纹到用户ID的映射
+        # ✅ 保存到 localStorage（通过 JavaScript）
         try:
-            user_mapping = {}
-            if user_mapping_file.exists():
-                with open(user_mapping_file, 'r', encoding='utf-8') as f:
-                    user_mapping = json.load(f)
-            
-            user_mapping[device_fingerprint] = new_user_id
-            
-            with open(user_mapping_file, 'w', encoding='utf-8') as f:
-                json.dump(user_mapping, f, ensure_ascii=False, indent=2)
-            
-            logger.info(f"已保存设备指纹映射: {device_fingerprint} -> {new_user_id}")
+            from streamlit_javascript import st_javascript
+            js_code = f"localStorage.setItem('wordstyle_user_id', '{new_user_id}');"
+            st_javascript(js_code)
+            logger.info(f"✅ 已将用户ID保存到 localStorage: {new_user_id}")
         except Exception as e:
-            logger.error(f"保存用户映射文件失败: {e}")
-            logger.warning("⚠️ 云端环境无法持久化 user_mapping.json，每次重启会生成新ID")
+            logger.error(f"保存到 localStorage 失败: {e}")
+            logger.warning("⚠️ 用户ID可能无法在刷新后保持")
         
         # 使用统一数据接口（data_manager 已在顶部导入）
         
