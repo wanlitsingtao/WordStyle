@@ -108,6 +108,33 @@ def show_dashboard():
         # 获取用户总数（从 JSON/Supabase）
         all_users = load_all_users_data()
         
+        # 调试信息：显示详细的数据加载情况
+        st.sidebar.markdown("### 🔍 数据加载诊断")
+        st.sidebar.write(f"**数据源模式**: {get_data_source()}")
+        st.sidebar.write(f"**用户数量**: {len(all_users)}")
+        
+        if get_data_source() == 'api':
+            from config import BACKEND_URL
+            st.sidebar.write(f"**后端地址**: {BACKEND_URL}")
+            
+            # 测试后端 API 连接
+            try:
+                import requests
+                test_url = f"{BACKEND_URL}/api/admin/users?limit=5"
+                response = requests.get(test_url, timeout=5)
+                st.sidebar.write(f"**API 状态码**: {response.status_code}")
+                if response.status_code == 200:
+                    api_data = response.json()
+                    st.sidebar.write(f"**API 返回用户数**: {api_data.get('total', 0)}")
+                    if api_data.get('users'):
+                        st.sidebar.success("✅ API 连接正常，用户数据可获取")
+                    else:
+                        st.sidebar.warning("⚠️ API 返回空用户列表")
+                else:
+                    st.sidebar.error(f"❌ API 请求失败: {response.status_code}")
+            except Exception as e:
+                st.sidebar.error(f"❌ API 连接失败: {str(e)}")
+        
         # 调试信息：检查用户数据
         if not all_users:
             st.warning("⚠️ 未找到用户数据")
@@ -115,7 +142,7 @@ def show_dashboard():
             if get_data_source() == 'api':
                 from config import BACKEND_URL
                 st.info(f"后端地址: {BACKEND_URL}")
-                st.error("请确认：1) 后端服务已启动 2) 数据库中有用户数据")
+                st.error("请确认：1) 后端服务已启动 2) 数据库中有用户数据 3) API 端点正确")
         total_users = len(all_users)
         
         # 计算今日新增用户
