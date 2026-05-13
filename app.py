@@ -208,61 +208,86 @@ def show_history_dialog():
 # ✅ 所有配置已从 config.py 和 utils.py 导入，不再重复定义
 # 参见：config.py, utils.py, user_manager.py, comments_manager.py
 # ==================== 初始化会话状态 ====================
-# 使用稳定的用户ID，防止刷新页面后重新领取免费额度
-# 策略：优先从 user_data.json 中查找最近使用的用户（最可靠）
+# ✅ 修复：基于客户端设备标识持久化用户ID
+# 策略：使用IP地址 + User-Agent组合作为设备指纹，确保同一终端始终使用相同用户ID
+# 优势：同一终端的所有浏览器会话共享同一用户ID，关闭后重新打开也能恢复
 
 if 'user_id' not in st.session_state:
-    # 从 user_data.json 中查找最近使用的用户
-    data_file = Path("user_data.json")
+    import hashlib
+    import json
+    from pathlib import Path
+    
+    # 获取客户端IP地址和User-Agent作为设备标识
+    try:
+        # 尝试从Streamlit上下文获取客户端信息
+        headers = st.context.headers if hasattr(st, 'context') and hasattr(st.context, 'headers') else {}
+        
+        # 获取IP地址（优先使用X-Forwarded-For，否则使用remote_addr）
+        client_ip = headers.get('X-Forwarded-For', '').split(',')[0].strip()
+        if not client_ip:
+            client_ip = headers.get('X-Real-IP', '')
+        if not client_ip:
+            # 本地开发时使用localhost
+            client_ip = '127.0.0.1'
+        
+        # 获取User-Agent
+        user_agent = headers.get('User-Agent', 'unknown')
+        
+        # 生成设备指纹（IP + User-Agent的组合哈希）
+        device_key = f"{client_ip}|{user_agent}"
+        device_fingerprint = hashlib.md5(device_key.encode()).hexdigest()[:16]
+        
+        logger.info(f"检测到客户端 - IP: {client_ip}, User-Agent: {user_agent[:50]}...")
+    except Exception as e:
+        # 如果无法获取客户端信息，使用备用方案
+        logger.warning(f"无法获取客户端信息: {e}，使用备用方案")
+        import socket
+        try:
+            hostname = socket.gethostname()
+        except:
+            hostname = "default"
+        device_fingerprint = hashlib.md5(f"fallback_{hostname}".encode()).hexdigest()[:16]
+    
+    # 从本地文件读取该设备对应的用户ID
+    user_mapping_file = Path(__file__).parent / "user_mapping.json"
     existing_user_id = None
     
-    if data_file.exists():
-        try:
-            with open(data_file, 'r', encoding='utf-8') as f:
-                all_data = json.load(f)
-                if all_data:
-                    # 优先级1：找有转换记录的用户（说明真正使用过）
-                    for uid, udata in all_data.items():
-                        if udata.get('total_converted', 0) > 0:
-                            existing_user_id = uid
-                            break
-                    
-                    # 优先级2：如果没有转换记录，找有充值记录的用户
-                    if not existing_user_id:
-                        for uid, udata in all_data.items():
-                            if len(udata.get('recharge_history', [])) > 0:
-                                existing_user_id = uid
-                                break
-                    
-                    # 优先级3：如果都没有，找有段落使用记录的用户
-                    if not existing_user_id:
-                        for uid, udata in all_data.items():
-                            if udata.get('total_paragraphs_used', 0) > 0:
-                                existing_user_id = uid
-                                break
-        except Exception as e:
-            logger.error(f"读取用户数据失败: {e}")
-            pass
+    try:
+        if user_mapping_file.exists():
+            with open(user_mapping_file, 'r', encoding='utf-8') as f:
+                user_mapping = json.load(f)
+                if device_fingerprint in user_mapping:
+                    existing_user_id = user_mapping[device_fingerprint]
+                    logger.info(f"从映射文件恢复用户ID: {existing_user_id}")
+    except Exception as e:
+        logger.error(f"读取用户映射文件失败: {e}")
     
     if existing_user_id:
         # 使用已存在的用户ID
         st.session_state.user_id = existing_user_id
         logger.info(f"恢复已有用户ID: {existing_user_id}")
     else:
-        # 生成新的用户ID（基于固定种子，确保稳定性）
-        import hashlib
-        import socket
-        
-        # 使用机器标识 + 固定前缀生成稳定的用户ID
-        try:
-            hostname = socket.gethostname()
-        except:
-            hostname = "default"
-        
-        unique_key = f"wordstyle_{hostname}_first_user"
+        # 生成新的用户ID（基于设备指纹，确保同一终端稳定性）
+        unique_key = f"wordstyle_device_{device_fingerprint}"
         new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
         st.session_state.user_id = new_user_id
-        logger.info(f"生成新用户ID: {new_user_id}")
+        logger.info(f"生成新用户ID: {new_user_id} (device: {device_fingerprint})")
+        
+        # ✅ 保存设备指纹到用户ID的映射
+        try:
+            user_mapping = {}
+            if user_mapping_file.exists():
+                with open(user_mapping_file, 'r', encoding='utf-8') as f:
+                    user_mapping = json.load(f)
+            
+            user_mapping[device_fingerprint] = new_user_id
+            
+            with open(user_mapping_file, 'w', encoding='utf-8') as f:
+                json.dump(user_mapping, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"已保存设备指纹映射: {device_fingerprint} -> {new_user_id}")
+        except Exception as e:
+            logger.error(f"保存用户映射文件失败: {e}")
         
         # 使用统一数据接口（data_manager 已在顶部导入）
         
@@ -631,17 +656,8 @@ except Exception as e:
     logger.error(f"清理过期文件失败: {e}")
 
 # ==================== 应用启动时清理临时文件 ====================
-# 清理超过24小时的临时文件，避免磁盘空间浪费
-try:
-    project_root = Path(__file__).parent
-    cleanup_result = cleanup_on_startup(project_root)
-    if cleanup_result['deleted'] > 0:
-        logger.info(
-            f"临时文件清理完成: 删除{cleanup_result['deleted']}个文件，"
-            f"释放{cleanup_result['size_freed_mb']:.2f} MB空间"
-        )
-except Exception as e:
-    logger.error(f"临时文件清理失败: {e}")
+# ⚠️ 已禁用：cleanup_on_startup 函数已被移除
+# 临时文件清理功能已整合到其他模块中
 
 # ==================== 主界面 ====================
 st.title("📝 标书抄写神器（Beta0.1）")

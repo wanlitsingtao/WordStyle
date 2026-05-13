@@ -267,10 +267,11 @@ class DocumentConverter:
             pPr.remove(numPr)
     
     def remove_manual_numbering(self, text):
-        """移除手动编号"""
+        """移除手动编号（智能判断中文数字是否为编号）"""
         fragment_patterns = [
             r'\d+(?:\.\d+)*\.?',
-            r'[一二三四五六七八九十]+',
+            r'[一二三四五六七八九十]+[、.．)）]',  # 中文数字后带分隔符才视为编号（支持半角/全角右括号）
+            r'（[一二三四五六七八九十]+）',  # 括号内的中文数字编号（如"（二）"）
             r'\([0-9]+\)',
             r'[①-⑩]',
             r'[A-Za-z]\.',
