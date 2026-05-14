@@ -17,6 +17,14 @@ from app.models import User, ConversionTask, SystemConfig, Comment, Feedback, St
 # this is the Alembic Config object
 config = context.config
 
+# 从环境变量读取 DATABASE_URL（Render 部署）
+database_url = os.getenv('DATABASE_URL')
+if database_url:
+    config.set_main_option('sqlalchemy.url', database_url)
+    print(f"✅ Alembic 使用环境变量 DATABASE_URL")
+else:
+    print(f"⚠️ 未找到 DATABASE_URL 环境变量，使用 alembic.ini 配置")
+
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
