@@ -334,7 +334,11 @@ if 'user_id' not in st.session_state:
         # 自动领取免费额度（使用统一数据接口）
         free_paragraphs = claim_free_paragraphs(user_id_to_use)
         
-        # ✅ 修复：注册用户数据时传递正确的 user_data
+        # ✅ 修复Bug：更新 user_data 中的 paragraphs_remaining，防止被 register_or_login_user 覆盖
+        if free_paragraphs > 0:
+            user_data['paragraphs_remaining'] = free_paragraphs
+        
+        # 注册用户数据时传递正确的 user_data
         register_or_login_user(user_id_to_use, user_data)
         
         logger.info(f"新用户 {user_id_to_use} 已创建并领取 {free_paragraphs} 免费段落")

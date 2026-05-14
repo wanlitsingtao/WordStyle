@@ -30,7 +30,7 @@ echo.
 echo 正在启动Web应用...
 echo.
 echo 主应用: http://localhost:8501
-echo 管理端: http://localhost:8503
+echo 管理端: http://localhost:8502
 echo.
 echo ========================================
 echo.
@@ -42,12 +42,12 @@ REM 等待2秒，确保主应用启动
 timeout /t 2 /nobreak >nul
 
 REM 启动管理端（后台运行）
-start "" cmd /c ".venv\Scripts\python.exe -m streamlit run admin_dashboard.py --server.port 8503 --server.headless=true"
+start "" cmd /c ".venv\Scripts\python.exe -m streamlit run admin_web.py --server.port 8502 --server.headless=true"
 
 echo.
 echo ✅ 两个服务已启动！
 echo    - 主应用: http://localhost:8501
-echo    - 管理端: http://localhost:8503
+echo    - 管理端: http://localhost:8502
 echo.
 echo 提示: 关闭此窗口不会停止服务
 echo       需要停止时请关闭所有命令行窗口

@@ -13,10 +13,10 @@ if not exist ".venv\Scripts\python.exe" (
 )
 
 echo [信息] 正在启动Web管理后台...
-echo [信息] 访问地址: http://localhost:8503
+echo [信息] 访问地址: http://localhost:8502
 echo.
 
 REM 启动Streamlit
-.venv\Scripts\python.exe -m streamlit run admin_web.py --server.port=8503 --server.headless=true
+.venv\Scripts\python.exe -m streamlit run admin_web.py --server.port=8502 --server.headless=true
 
 pause

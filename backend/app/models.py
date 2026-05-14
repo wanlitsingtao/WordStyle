@@ -35,69 +35,45 @@ class UUID(TypeDecorator):
         return value
 
 class User(Base):
-    """用户模型"""
+    """用户模型（简化版 - 基于实际数据库结构）"""
     __tablename__ = "users"
     
-    id = Column(String(12), primary_key=True)  # 使用12位字符串作为用户ID
-    # 微信扫码登录相关字段
-    wechat_openid = Column(String(128), unique=True, nullable=True, index=True)  # 微信OpenID
-    wechat_nickname = Column(String(100))  # 微信昵称
-    wechat_avatar = Column(String(500))  # 微信头像URL
-    # 兼容传统邮箱登录（可选）
-    email = Column(String(255), unique=True, nullable=True, index=True)
-    username = Column(String(100))
-    password_hash = Column(String(255), nullable=True)  # 改为可空，微信扫码无需密码
-    balance = Column(Float, default=0.0)
-    paragraphs_remaining = Column(Integer, default=0)
-    # 统计字段
-    total_paragraphs_used = Column(Integer, default=0)  # 累计使用的段落数
-    total_converted = Column(Integer, default=0)  # 累计转换的文件数
+    id = Column(String(12), primary_key=True)  # 12位字符串用户ID
+    username = Column(String(50))  # 用户名
+    style_mappings = Column(JSONB, default='{}')  # 样式映射配置
+    balance = Column(Float, default=0.0)  # 账户余额
+    paragraphs_remaining = Column(Integer, default=0)  # 剩余段落数
+    total_paragraphs_used = Column(Integer, default=0)  # 累计使用段落数
+    total_converted = Column(Integer, default=0)  # 累计转换文件数
+    is_active = Column(Boolean, default=True)  # 是否激活
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
     last_login = Column(DateTime(timezone=True))  # 最后登录时间
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    last_claim_date = Column(DateTime(timezone=True))  # 上次领取免费额度日期
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())  # 更新时间
     
     def __repr__(self):
-        return f"<User {self.email}>"
+        return f"<User {self.id}>"
 
-class Order(Base):
-    """订单模型"""
-    __tablename__ = "orders"
-    
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    order_no = Column(String(64), unique=True, nullable=False, index=True)
-    user_id = Column(String(12), ForeignKey("users.id"), nullable=False)  # 与 User.id 类型一致
-    amount = Column(Float, nullable=False)
-    paragraphs = Column(Integer, nullable=False)
-    package_label = Column(String(100))
-    status = Column(String(20), default="PENDING")  # PENDING, PAID, FAILED, REFUNDED
-    payment_method = Column(String(20))  # WECHAT, ALIPAY
-    transaction_id = Column(String(128))  # 支付平台交易号
-    paid_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    def __repr__(self):
-        return f"<Order {self.order_no}>"
+# User 模型定义完成后，直接到 ConversionTask
 
 class ConversionTask(Base):
-    """转换任务模型"""
+    """转换任务模型（基于实际数据库结构）"""
     __tablename__ = "conversion_tasks"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    task_id = Column(String(64), unique=True, nullable=False, index=True)
-    user_id = Column(String(12), ForeignKey("users.id"), nullable=False)  # 与 User.id 类型一致
-    filename = Column(String(255))
-    paragraphs = Column(Integer)
-    cost = Column(Float)
-    status = Column(String(20), default="PENDING")  # PENDING, PROCESSING, COMPLETED, FAILED
-    progress = Column(Integer, default=0)
-    output_files = Column(Text)  # JSON 字符串，SQLite 不支持 JSONB
-    error_message = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    completed_at = Column(DateTime(timezone=True))
+    user_id = Column(String(12), ForeignKey("users.id"), nullable=False)  # 用户ID
+    source_file = Column(String(500), nullable=False)  # 源文件路径
+    template_file = Column(String(500), nullable=False)  # 模板文件路径
+    converted_file = Column(String(500))  # 转换后文件路径
+    status = Column(String(20), default='pending')  # 任务状态
+    progress = Column(Integer, default=0)  # 进度（0-100）
+    error_message = Column(Text)  # 错误信息
+    completed_at = Column(DateTime(timezone=True))  # 完成时间
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())  # 更新时间
     
     def __repr__(self):
-        return f"<ConversionTask {self.task_id}>"
+        return f"<ConversionTask {self.id}>"
 
 class SystemConfig(Base):
     """系统配置模型"""
@@ -111,3 +87,50 @@ class SystemConfig(Base):
     
     def __repr__(self):
         return f"<SystemConfig {self.config_key}>"
+
+class Comment(Base):
+    """评论模型"""
+    __tablename__ = "comments"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(50))  # 用户ID
+    username = Column(String(100))  # 用户名
+    content = Column(Text, nullable=False)  # 评论内容
+    rating = Column(Integer, default=5)  # 评分
+    likes = Column(Integer, default=0)  # 点赞数
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
+    
+    def __repr__(self):
+        return f"<Comment {self.id}>"
+
+class Feedback(Base):
+    """反馈模型"""
+    __tablename__ = "feedbacks"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(50))  # 用户ID
+    feedback_type = Column(String(20))  # 反馈类型
+    title = Column(String(200))  # 标题
+    description = Column(Text)  # 描述
+    contact = Column(String(200))  # 联系方式
+    status = Column(String(20), default='pending')  # 状态
+    reply = Column(Text)  # 回复
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())  # 更新时间
+    
+    def __repr__(self):
+        return f"<Feedback {self.id}>"
+
+class StyleMapping(Base):
+    """样式映射模型"""
+    __tablename__ = "style_mappings"
+    
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(String(50), nullable=False)  # 用户ID
+    filename = Column(String(255), nullable=False)  # 文件名
+    source_style = Column(String(255), nullable=False)  # 源样式
+    target_style = Column(String(255), nullable=False)  # 目标样式
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
+    
+    def __repr__(self):
+        return f"<StyleMapping {self.id}>"

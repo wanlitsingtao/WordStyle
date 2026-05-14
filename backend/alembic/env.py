@@ -2,12 +2,6 @@
 """
 Alembic 配置
 """
-import sys
-import os
-
-# 添加 backend 目录到 Python 路径
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
@@ -20,16 +14,6 @@ config = context.config
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
-
-# 从环境变量读取 DATABASE_URL（优先于 alembic.ini 中的配置）
-database_url = os.getenv('DATABASE_URL')
-if database_url:
-    # 转义百分号，避免 configparser 的插值语法错误
-    escaped_url = database_url.replace('%', '%%')
-    config.set_main_option("sqlalchemy.url", escaped_url)
-    print(f"✅ Alembic 使用环境变量 DATABASE_URL")
-else:
-    print(f"⚠️ 未找到 DATABASE_URL 环境变量，使用 alembic.ini 中的配置")
 
 # add your model's MetaData object here for 'autogenerate' support
 target_metadata = Base.metadata

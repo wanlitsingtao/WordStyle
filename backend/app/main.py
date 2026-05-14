@@ -5,7 +5,7 @@ FastAPI 主应用
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api import auth, users, payments, conversions, wechat_auth, admin, test_payment, feedback, monitoring
+from app.api import auth, users, conversions, wechat_auth, admin, feedback, monitoring
 import logging
 
 logger = logging.getLogger(__name__)
@@ -56,10 +56,8 @@ def create_application() -> FastAPI:
     application.include_router(auth.router, prefix="/api/auth", tags=["认证"])
     application.include_router(wechat_auth.router, prefix="/api/wechat", tags=["微信登录"])
     application.include_router(users.router, prefix="/api/users", tags=["用户"])
-    application.include_router(payments.router, prefix="/api/payments", tags=["支付"])
     application.include_router(conversions.router, prefix="/api/conversions", tags=["转换"])
     application.include_router(admin.router, prefix="/api/admin", tags=["管理员"])
-    application.include_router(test_payment.router, prefix="/api/test-payment", tags=["测试支付"])
     application.include_router(feedback.router, prefix="/api/feedback", tags=["用户反馈"])
     application.include_router(monitoring.router, prefix="/monitoring", tags=["监控"])
     

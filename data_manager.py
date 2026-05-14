@@ -208,14 +208,26 @@ elif DATA_SOURCE == "supabase":
         
         # 用户管理相关函数（Supabase 模式 - 完整实现）
         def _claim_free(user_id=None):
-            """领取免费段落（Supabase 模式）"""
+            """领取免费段落（Supabase 模式）- 每日只领取一次"""
             from config import FREE_PARAGRAPHS_DAILY
+            from datetime import date
             
             db = SessionLocal()
             try:
                 user = db.query(User).filter(User.id == user_id).first()
                 if user:
-                    user.paragraphs_remaining += FREE_PARAGRAPHS_DAILY
+                    today = date.today()
+                    
+                    # 检查今日是否已领取
+                    if user.last_claim_date:
+                        last_claim = user.last_claim_date.date() if hasattr(user.last_claim_date, 'date') else user.last_claim_date
+                        if last_claim == today:
+                            # 今日已领取，不再重复发放
+                            return 0
+                    
+                    # 今日首次领取：重置为免费额度（不累计）
+                    user.paragraphs_remaining = FREE_PARAGRAPHS_DAILY
+                    user.last_claim_date = datetime.now()
                     db.commit()
                     return FREE_PARAGRAPHS_DAILY
                 return 0
