@@ -16,6 +16,18 @@ DATA_DIR = BASE_DIR / "data"
 RESULTS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
 
+# ==================== 加载 .env 文件（本地开发用）====================
+try:
+    from dotenv import load_dotenv
+    env_file = BASE_DIR / '.env'
+    if env_file.exists():
+        load_dotenv(env_file)
+        print(f"[OK] 已加载 .env 配置文件")
+    else:
+        print(f"[INFO] 未找到 .env 文件，使用系统环境变量或默认值")
+except ImportError:
+    print(f"[WARN] python-dotenv 未安装，无法加载 .env 文件")
+
 # ==================== 数据源配置 ====================
 # 支持三种模式：
 #   1. local - 本地开发（SQLite + JSON）
@@ -81,7 +93,7 @@ elif USE_SUPABASE and DATABASE_URL:
 else:
     # 本地开发
     DATA_SOURCE = "local"
-    print(f"💾 数据源模式: 本地 (SQLite + JSON)")
+    print(f"[INFO] 数据源模式: 本地 (SQLite + JSON)")
 
 # ==================== 计费配置 ====================
 # 计费规则：100个段落 = 0.1元
@@ -204,11 +216,11 @@ def validate_config():
 if __name__ == "__main__":
     errors = validate_config()
     if errors:
-        print("⚠️ 配置错误:")
+        print("[ERROR] 配置错误:")
         for error in errors:
             print(f"  - {error}")
     else:
-        print("✅ 配置验证通过")
+        print("[OK] 配置验证通过")
         print("\n配置摘要:")
         for key, value in get_config_summary().items():
             print(f"  {key}: {value}")

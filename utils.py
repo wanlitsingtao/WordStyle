@@ -94,19 +94,19 @@ if __name__ == "__main__":
     # 测试HTML转义
     test_html = "<script>alert('XSS')</script>"
     safe_html = sanitize_html(test_html)
-    print(f"✅ HTML转义: {test_html} -> {safe_html}")
+    print(f"[OK] HTML转义: {test_html} -> {safe_html}")
     
     # 测试文件名清理
     test_filename = "../../../etc/passwd.docx"
     safe_filename = sanitize_filename(test_filename)
-    print(f"✅ 文件名清理: {test_filename} -> {safe_filename}")
+    print(f"[OK] 文件名清理: {test_filename} -> {safe_filename}")
     
     # 测试费用计算
     cost = calculate_cost(1000)
-    print(f"✅ 费用计算: 1000段落 = ¥{cost:.2f}")
+    print(f"[OK] 费用计算: 1000段落 = ¥{cost:.2f}")
     
     # 测试数字格式化
     formatted = format_number(1234567)
-    print(f"✅ 数字格式化: {formatted}")
+    print(f"[OK] 数字格式化: {formatted}")
     
-    print("\n✅ 所有测试通过！")
+    print("\n[OK] 所有测试通过！")

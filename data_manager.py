@@ -43,7 +43,7 @@ if DATA_SOURCE == "local":
         has_active_task as _has_active_task,
         cleanup_expired_tasks as _cleanup_expired_tasks,
     )
-    print(f"✅ 数据访问层初始化：本地模式 (SQLite + JSON)")
+    print(f"[OK] 数据访问层初始化：本地模式 (SQLite + JSON)")
 
 # ==================== Supabase 模式导入 ====================
 elif DATA_SOURCE == "supabase":
@@ -221,7 +221,7 @@ elif DATA_SOURCE == "supabase":
                 return 0
             except Exception as e:
                 db.rollback()
-                print(f"⚠️ 领取免费段落失败: {e}")
+                print(f"[WARN] 领取免费段落失败: {e}")
                 return 0
             finally:
                 db.close()
@@ -248,7 +248,7 @@ elif DATA_SOURCE == "supabase":
                 return {'success': False, 'error': '用户不存在'}
             except Exception as e:
                 db.rollback()
-                print(f"⚠️ 充值失败: {e}")
+                print(f"[WARN] 充值失败: {e}")
                 return {'success': False, 'error': str(e)}
             finally:
                 db.close()
@@ -268,7 +268,7 @@ elif DATA_SOURCE == "supabase":
                 return False
             except Exception as e:
                 db.rollback()
-                print(f"⚠️ 扣除段落失败: {e}")
+                print(f"[WARN] 扣除段落失败: {e}")
                 return False
             finally:
                 db.close()
@@ -320,7 +320,7 @@ elif DATA_SOURCE == "supabase":
                 return task_id
             except Exception as e:
                 db.rollback()
-                print(f"⚠️ 创建任务失败: {e}")
+                print(f"[WARN] 创建任务失败: {e}")
                 return None
             finally:
                 db.close()
@@ -343,7 +343,7 @@ elif DATA_SOURCE == "supabase":
                 return False
             except Exception as e:
                 db.rollback()
-                print(f"⚠️ 更新任务状态失败: {e}")
+                print(f"[WARN] 更新任务状态失败: {e}")
                 return False
             finally:
                 db.close()
@@ -411,12 +411,12 @@ elif DATA_SOURCE == "supabase":
                 return deleted
             except Exception as e:
                 db.rollback()
-                print(f"⚠️ 清理过期任务失败: {e}")
+                print(f"[WARN] 清理过期任务失败: {e}")
                 return 0
             finally:
                 db.close()
         
-        print(f"✅ 数据访问层初始化：Supabase 模式 (PostgreSQL)")
+        print(f"[OK] 数据访问层初始化：Supabase 模式 (PostgreSQL)")
     
     except ImportError as e:
         import traceback
@@ -467,7 +467,7 @@ elif DATA_SOURCE == "api":
     """
     # 确保 BACKEND_URL 存在
     if not BACKEND_URL:
-        print("⚠️ API 模式需要 BACKEND_URL，回退到本地模式")
+        print("[WARN] API 模式需要 BACKEND_URL，回退到本地模式")
         DATA_SOURCE = "local"
         from user_manager import (
             load_user_data as _load_user,
@@ -501,12 +501,7 @@ elif DATA_SOURCE == "api":
                 response.raise_for_status()
                 return response.json()
             except Exception as e:
-                print(f"❌ API 请求失败: {method.upper()} {endpoint}")
-                print(f"   URL: {BACKEND_URL}/api/admin{endpoint}")
-                print(f"   错误: {e}")
-                if 'response' in locals():
-                    print(f"   状态码: {response.status_code}")
-                    print(f"   响应内容: {response.text[:200]}")
+                print(f"️ API 请求失败: {method.upper()} {endpoint} - {e}")
                 return {}
         
         def _load_user(user_id: str) -> Dict[str, Any]:

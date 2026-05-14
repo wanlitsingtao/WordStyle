@@ -195,8 +195,8 @@ def show_dashboard():
         
         # 成功率
         success_rate = 0
-        if stats['total_tasks'] > 0:
-            success_rate = (stats['completed_tasks'] / stats['total_tasks']) * 100
+        if stats.get('total_tasks', 0) > 0:
+            success_rate = (stats.get('completed_tasks', 0) / stats.get('total_tasks', 1)) * 100
         
         st.metric("🎯 成功率", f"{success_rate:.1f}%")
         

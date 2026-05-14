@@ -277,12 +277,14 @@ if 'user_id' not in st.session_state:
         if existing_user_id:
             # 使用已存在的用户ID
             st.session_state.user_id = existing_user_id
+            user_id_to_use = existing_user_id
             logger.info(f"恢复已有用户ID: {existing_user_id}")
         else:
             # 🔧 第三步：生成新的用户ID
             unique_key = f"wordstyle_device_{device_fingerprint}"
             new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
             st.session_state.user_id = new_user_id
+            user_id_to_use = new_user_id
             logger.info(f"生成新用户ID: {new_user_id} (device: {device_fingerprint})")
             
             # ✅ 保存设备指纹到用户ID的映射（本地环境）
@@ -313,13 +315,13 @@ if 'user_id' not in st.session_state:
         # 使用统一数据接口（data_manager 已在顶部导入）
         
         # 先加载用户数据（使用统一数据接口）
-        user_data = load_user_data(new_user_id)
+        user_data = load_user_data(user_id_to_use)
         
         # 如果是新用户，初始化用户数据
         if not user_data:
             from datetime import datetime
             user_data = {
-                'user_id': new_user_id,
+                'user_id': user_id_to_use,
                 'balance': 0.0,
                 'paragraphs_remaining': 0,
                 'total_paragraphs_used': 0,
@@ -330,12 +332,12 @@ if 'user_id' not in st.session_state:
             }
         
         # 自动领取免费额度（使用统一数据接口）
-        free_paragraphs = claim_free_paragraphs(new_user_id)
+        free_paragraphs = claim_free_paragraphs(user_id_to_use)
         
         # ✅ 修复：注册用户数据时传递正确的 user_data
-        register_or_login_user(new_user_id, user_data)
+        register_or_login_user(user_id_to_use, user_data)
         
-        logger.info(f"新用户 {new_user_id} 已创建并领取 {free_paragraphs} 免费段落")
+        logger.info(f"新用户 {user_id_to_use} 已创建并领取 {free_paragraphs} 免费段落")
 
 
 # 新手引导标志

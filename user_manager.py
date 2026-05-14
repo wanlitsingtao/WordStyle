@@ -392,11 +392,11 @@ def load_all_users_data():
             
             return users
     except Exception as e:
-        print(f"⚠️ 加载所有用户数据失败: {e}")
+        print(f"[WARN] 加载所有用户数据失败: {e}")
         return []
 
 
 # 测试代码
 if __name__ == "__main__":
-    print("⚠️ 用户管理模块需要在Streamlit环境中运行")
+    print("[WARN] 用户管理模块需要在Streamlit环境中运行")
     print("请使用: streamlit run user_manager.py 进行测试")

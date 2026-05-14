@@ -330,7 +330,7 @@ def register_or_login_user(user_id, user_data):
         conn.commit()
     except Exception as e:
         conn.rollback()
-        print(f"⚠️ 注册用户失败: {e}")
+        print(f"[WARN] 注册用户失败: {e}")
     finally:
         conn.close()
 
