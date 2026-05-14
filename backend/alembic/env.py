@@ -12,7 +12,7 @@ from alembic import context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.core.database import Base
-from app.models import User, Order, ConversionTask
+from app.models import User, ConversionTask, SystemConfig, Comment, Feedback, StyleMapping
 
 # this is the Alembic Config object
 config = context.config
