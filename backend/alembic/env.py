@@ -2,9 +2,15 @@
 """
 Alembic 配置
 """
+import os
+import sys
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+
+# 添加 backend 目录到 Python 路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from app.core.database import Base
 from app.models import User, Order, ConversionTask
 
