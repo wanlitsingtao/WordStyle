@@ -73,27 +73,7 @@ def test_get_profile(token):
         print(f"   ❌ 失败: {response.json()}")
         return None
 
-def test_create_order(token):
-    """测试创建订单"""
-    print("\n5️⃣  测试创建充值订单...")
-    headers = {"Authorization": f"Bearer {token}"}
-    order_data = {
-        "amount": 9.9,
-        "package_label": "基础版"
-    }
-    response = requests.post(f"{BASE_URL}/api/payments/create-order", headers=headers, json=order_data)
-    print(f"   状态码: {response.status_code}")
-    
-    if response.status_code == 200:
-        data = response.json()
-        print(f"   订单号: {data['order_no']}")
-        print(f"   金额: ¥{data['amount']}")
-        print(f"   段落数: {data['paragraphs']}")
-        print("   ✅ 通过")
-        return data
-    else:
-        print(f"   ❌ 失败: {response.json()}")
-        return None
+# 订单功能已移除
 
 def main():
     print("=" * 60)
@@ -115,9 +95,6 @@ def main():
         
         # 4. 获取用户信息
         user_info = test_get_profile(token)
-        
-        # 5. 创建订单
-        order = test_create_order(token)
         
         print("\n" + "=" * 60)
         print("  ✅ 所有测试通过！")
