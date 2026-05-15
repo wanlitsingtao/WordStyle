@@ -95,7 +95,7 @@ if DATA_SOURCE == "local":
                 'user_id': user_id,
                 'balance': 0.0,
                 'paragraphs_remaining': FREE_PARAGRAPHS_DAILY,
-                'paragraphs_used': 0,
+                'total_paragraphs_used': 0,
                 'total_converted': 0,
                 'is_active': True,
                 'created_at': datetime.now().isoformat(),
@@ -137,7 +137,7 @@ elif DATA_SOURCE == "supabase":
                         'user_id': user.id,
                         'balance': float(user.balance or 0),
                         'paragraphs_remaining': int(user.paragraphs_remaining or 0),
-                        'paragraphs_used': int(user.total_paragraphs_used or 0),
+                        'total_paragraphs_used': int(user.total_paragraphs_used or 0),
                         'total_converted': int(user.total_converted or 0),
                         'is_active': bool(user.is_active),
                         'created_at': user.created_at.isoformat() if user.created_at else '',
@@ -163,7 +163,7 @@ elif DATA_SOURCE == "supabase":
                         'user_id': u.id,
                         'balance': float(u.balance or 0),
                         'paragraphs_remaining': int(u.paragraphs_remaining or 0),
-                        'paragraphs_used': int(u.total_paragraphs_used or 0),
+                        'total_paragraphs_used': int(u.total_paragraphs_used or 0),
                         'total_converted': int(u.total_converted or 0),
                         'is_active': bool(u.is_active),
                         'created_at': u.created_at.isoformat() if u.created_at else '',
@@ -183,7 +183,7 @@ elif DATA_SOURCE == "supabase":
                     # 更新现有用户
                     user.balance = user_data.get('balance', 0)
                     user.paragraphs_remaining = user_data.get('paragraphs_remaining', 0)
-                    user.total_paragraphs_used = user_data.get('paragraphs_used', 0)
+                    user.total_paragraphs_used = user_data.get('total_paragraphs_used', 0)
                     user.total_converted = user_data.get('total_converted', 0)
                     user.last_login = datetime.now()
                 else:
@@ -192,7 +192,7 @@ elif DATA_SOURCE == "supabase":
                         id=user_id,
                         balance=user_data.get('balance', 0),
                         paragraphs_remaining=user_data.get('paragraphs_remaining', 0),
-                        total_paragraphs_used=user_data.get('paragraphs_used', 0),
+                        total_paragraphs_used=user_data.get('total_paragraphs_used', 0),
                         total_converted=user_data.get('total_converted', 0),
                         is_active=True,
                         created_at=datetime.now(),
