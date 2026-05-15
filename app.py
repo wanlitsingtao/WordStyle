@@ -219,9 +219,9 @@ if 'user_id' not in st.session_state:
     from pathlib import Path
     
     # 🔧 第一步：生成设备指纹（基于IP+User-Agent）
-    # ️ 安全修复：不再信任URL参数中的uid，防止用户伪造身份
+    # ⚠️ 安全修复：不再信任URL参数中的uid，防止用户伪造身份
     existing_user_id = None
-        
+            
     # 获取客户端设备指纹
     try:
         headers = st.context.headers if hasattr(st, 'context') and hasattr(st.context, 'headers') else {}
@@ -245,22 +245,30 @@ if 'user_id' not in st.session_state:
             hostname = "default"
         device_fingerprint = hashlib.md5(f"fallback_{hostname}".encode()).hexdigest()[:16]
         
-    # 从本地文件读取该设备对应的用户ID
-    user_mapping_file = Path(__file__).parent / "user_mapping.json"
+    # ✅ 关键修复：优先从 session_state 恢复用户ID（云端环境持久化）
+    if 'device_fingerprint' in st.session_state and 'user_id' in st.session_state:
+        if st.session_state.device_fingerprint == device_fingerprint:
+            existing_user_id = st.session_state.user_id
+            logger.info(f"✅ 从 session_state 恢复用户ID: {existing_user_id}")
         
-    try:
-        if user_mapping_file.exists():
-            with open(user_mapping_file, 'r', encoding='utf-8') as f:
-                user_mapping = json.load(f)
-                if device_fingerprint in user_mapping:
-                    existing_user_id = user_mapping[device_fingerprint]
-                    logger.info(f"✅ 从 user_mapping.json 恢复用户ID: {existing_user_id}")
-    except Exception as e:
-        logger.error(f"读取用户映射文件失败: {e}")
-        
+    # 如果 session_state 中没有，尝试从本地文件读取（本地环境）
+    if not existing_user_id:
+        user_mapping_file = Path(__file__).parent / "user_mapping.json"
+            
+        try:
+            if user_mapping_file.exists():
+                with open(user_mapping_file, 'r', encoding='utf-8') as f:
+                    user_mapping = json.load(f)
+                    if device_fingerprint in user_mapping:
+                        existing_user_id = user_mapping[device_fingerprint]
+                        logger.info(f"✅ 从 user_mapping.json 恢复用户ID: {existing_user_id}")
+        except Exception as e:
+            logger.error(f"读取用户映射文件失败: {e}")
+            
     if existing_user_id:
         # 使用已存在的用户ID
         st.session_state.user_id = existing_user_id
+        st.session_state.device_fingerprint = device_fingerprint  # ✅ 保存到 session_state
         user_id_to_use = existing_user_id
         logger.info(f"恢复已有用户ID: {existing_user_id}")
     else:
@@ -268,12 +276,14 @@ if 'user_id' not in st.session_state:
         unique_key = f"wordstyle_device_{device_fingerprint}"
         new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
         st.session_state.user_id = new_user_id
+        st.session_state.device_fingerprint = device_fingerprint  # ✅ 保存到 session_state
         user_id_to_use = new_user_id
         logger.info(f"生成新用户ID: {new_user_id} (device: {device_fingerprint})")
             
-        # ✅ 保存设备指纹到用户ID的映射（本地环境）
+        # ✅ 保存设备指纹到用户ID的映射（仅本地环境有效）
         try:
             user_mapping = {}
+            user_mapping_file = Path(__file__).parent / "user_mapping.json"
             if user_mapping_file.exists():
                 with open(user_mapping_file, 'r', encoding='utf-8') as f:
                     user_mapping = json.load(f)
@@ -286,7 +296,7 @@ if 'user_id' not in st.session_state:
             logger.info(f"✅ 已保存设备指纹映射到文件: {device_fingerprint} -> {new_user_id}")
         except Exception as e:
             logger.error(f"保存用户映射文件失败: {e}")
-            logger.warning("⚠️ 云端环境无法持久化 user_mapping.json")
+            logger.info("ℹ️ 云端环境将依赖 session_state 持久化用户ID")
         
         # 使用统一数据接口（data_manager 已在顶部导入）
         
@@ -781,19 +791,6 @@ with st.sidebar:
     
     # 加载用户数据
     user_data = load_user_data(st.session_state.user_id)
-    
-    # ✅ 安全检查：如果用户数据加载失败，使用默认值
-    if user_data is None:
-        logger.warning(f"⚠️ 无法加载用户数据: {st.session_state.user_id}，使用默认值")
-        user_data = {
-            'paragraphs_remaining': 0,
-            'total_converted': 0,
-            'balance': 0.0,
-            'total_paragraphs_used': 0,
-            'is_active': True,
-            'created_at': '',
-            'last_login': ''
-        }
     
     # 显示段落数和统计信息
     st.metric("剩余段落数", f"{user_data['paragraphs_remaining']:,}")
