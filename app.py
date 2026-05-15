@@ -244,34 +244,31 @@ try:
     
 except Exception as e:
     logger.error(f"❌ 获取用户数据失败: {e}")
-    # 降级方案：生成临时用户ID（不保存到数据库）
-    import time
-    temp_user_id = f"temp_{int(time.time())}"
-    st.session_state.user_id = temp_user_id
+    # 降级方案：使用设备指纹的MD5作为用户ID（保证同一设备ID不变）
+    import hashlib
+    stable_user_id = hashlib.md5(f"wordstyle_fallback_{device_fingerprint}".encode()).hexdigest()[:12]
+    st.session_state.user_id = stable_user_id
     st.session_state.device_fingerprint = device_fingerprint
     
     user_data = {
-        'user_id': temp_user_id,
+        'user_id': stable_user_id,
         'balance': 0.0,
-        'paragraphs_remaining': 0,
+        'paragraphs_remaining': FREE_PARAGRAPHS_DAILY,
         'total_paragraphs_used': 0,
         'total_converted': 0,
-        'is_active': False,
-        'created_at': '',
-        'last_login': '',
+        'is_active': True,
+        'created_at': datetime.now().isoformat(),
+        'last_login': datetime.now().isoformat(),
     }
-    logger.warning(f"⚠️ 使用临时用户ID: {temp_user_id}")
+    logger.warning(f"⚠️ 使用备用用户ID: {stable_user_id}（带免费额度）")
 
 # 🔧 第三步：自动领取免费额度（会检查日期并重置）
-# ⚠️ 只有正常用户ID才领取免费额度，临时用户不领取
-if not st.session_state.user_id.startswith('temp_'):
-    free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
-    if free_paragraphs > 0:
-        st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
-        # 更新user_data中的额度
-        user_data['paragraphs_remaining'] = free_paragraphs
-else:
-    logger.warning(f"⚠️ 临时用户 {st.session_state.user_id} 不领取免费额度")
+# 对所有用户类型都尝试领取免费额度（包括降级方案的备用用户）
+free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
+if free_paragraphs > 0:
+    st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
+    # 更新user_data中的额度
+    user_data['paragraphs_remaining'] = free_paragraphs
 
 logger.info(f"用户 {st.session_state.user_id} 初始化完成，剩余额度: {user_data['paragraphs_remaining']}")
 

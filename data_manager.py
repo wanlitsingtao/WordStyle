@@ -572,6 +572,9 @@ elif DATA_SOURCE == "api":
         def _make_api_request(endpoint: str, params: dict = None, method: str = "get", json: dict = None) -> dict:
             """发送 API 请求到后端（支持 GET/POST/PUT）"""
             try:
+                # 根据端点自动选择前缀
+                # /users/by-device → /api/admin/users/by-device
+                # /users/{id}/claim-free → /api/admin/users/{id}/claim-free
                 url = f"{BACKEND_URL}/api/admin{endpoint}"
                 logger.info(f"🌐 API请求: {method.upper()} {url}")
                 
