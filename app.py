@@ -731,9 +731,11 @@ with st.sidebar:
     st.caption(f"用户ID: {st.session_state.user_id[:12]}...")
     
     # 每日自动领取免费额度（检查日期，如果是新的一天则重置）
-    free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
-    if free_paragraphs > 0:
-        st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
+    # ️ 只有正常用户ID才领取免费额度，临时用户不领取
+    if not st.session_state.user_id.startswith('temp_'):
+        free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
+        if free_paragraphs > 0:
+            st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
     
     # 加载用户数据
     user_data = load_user_data(st.session_state.user_id)
