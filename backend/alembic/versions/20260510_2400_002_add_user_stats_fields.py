@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260510_2400_002'
-down_revision = None  # 这是第一个迁移脚本
+down_revision = '001'  # 依赖于 initial migration
 branch_labels = None
 depends_on = None
 

@@ -8,6 +8,16 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
+# 加载 .env 文件（如果存在）
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+        print(f"✅ Loaded .env file: {env_path}")
+except ImportError:
+    print("⚠️ python-dotenv not installed, skipping .env loading")
+
 # 添加 backend 目录到 Python 路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -23,9 +33,9 @@ if database_url:
     # 转义 % 字符，避免 ConfigParser 将其视为插值语法
     escaped_url = database_url.replace('%', '%%')
     config.set_main_option('sqlalchemy.url', escaped_url)
-    print(f"✅ Alembic 使用环境变量 DATABASE_URL")
+    print(f"✅ Alembic using DATABASE_URL from environment")
 else:
-    print(f"⚠️ 未找到 DATABASE_URL 环境变量，使用 alembic.ini 配置")
+    print(f"⚠️ DATABASE_URL not found, using alembic.ini config")
 
 # Interpret the config file for Python logging.
 if config.config_file_name is not None:
