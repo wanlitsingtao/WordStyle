@@ -367,7 +367,7 @@ def create_or_update_user(user_id: str, user_data: dict, db: Session = Depends(g
 @router.post("/users/{user_id}/claim-free")
 def claim_free_paragraphs(user_id: str, db: Session = Depends(get_db)):
     """领取免费段落（供 API 模式调用）"""
-    from config import FREE_PARAGRAPHS_DAILY
+    from app.config import FREE_PARAGRAPHS_DAILY
     from datetime import datetime
     
     user = db.query(User).filter(User.id == user_id).first()
