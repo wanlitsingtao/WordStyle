@@ -267,20 +267,26 @@ except Exception as e:
     }
     logger.warning(f"⚠️ 使用临时用户ID（无额度）: {fallback_id}")
 
-# 第三步：只有在初始化成功时才尝试领取免费额度
-if user_init_success:
+# 第三步：只有在初始化成功时才尝试领取免费额度（仅首次加载时执行）
+if user_init_success and 'free_claimed_today' not in st.session_state:
     try:
         free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
         if free_paragraphs > 0:
             st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
             user_data['paragraphs_remaining'] = free_paragraphs
             logger.info(f"✅ 免费额度领取成功: {free_paragraphs}")
+            # 标记今日已领取，避免重复显示toast
+            st.session_state.free_claimed_today = True
         else:
             logger.info(f"ℹ️ 无需领取额度或已领取过，当前额度: {user_data.get('paragraphs_remaining', 0)}")
+            # 即使没有新领取，也标记已检查过
+            st.session_state.free_claimed_today = True
     except Exception as e:
         logger.warning(f"⚠️ 领取免费额度失败: {e}，但不影响用户使用")
+        st.session_state.free_claimed_today = True
 else:
-    logger.warning("⚠️ 用户初始化失败，跳过额度领取")
+    if not user_init_success:
+        logger.warning("⚠️ 用户初始化失败，跳过额度领取")
 
 logger.info(f"用户 {st.session_state.user_id} 初始化完成，剩余额度: {user_data['paragraphs_remaining']}")
 
