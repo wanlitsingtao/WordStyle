@@ -263,11 +263,15 @@ except Exception as e:
     logger.warning(f"⚠️ 使用临时用户ID: {temp_user_id}")
 
 # 🔧 第三步：自动领取免费额度（会检查日期并重置）
-free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
-if free_paragraphs > 0:
-    st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
-    # 更新user_data中的额度
-    user_data['paragraphs_remaining'] = free_paragraphs
+# ⚠️ 只有正常用户ID才领取免费额度，临时用户不领取
+if not st.session_state.user_id.startswith('temp_'):
+    free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
+    if free_paragraphs > 0:
+        st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
+        # 更新user_data中的额度
+        user_data['paragraphs_remaining'] = free_paragraphs
+else:
+    logger.warning(f"⚠️ 临时用户 {st.session_state.user_id} 不领取免费额度")
 
 logger.info(f"用户 {st.session_state.user_id} 初始化完成，剩余额度: {user_data['paragraphs_remaining']}")
 

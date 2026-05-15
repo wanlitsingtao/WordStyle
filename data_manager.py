@@ -8,10 +8,14 @@
 """
 import os
 import sys
+import logging
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 # 导入配置
 sys.path.insert(0, os.path.dirname(__file__))
