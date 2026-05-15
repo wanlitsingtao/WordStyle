@@ -744,14 +744,6 @@ with st.sidebar:
     else:
         st.caption(f"用户ID: {st.session_state.user_id[:12]}...")
     
-    # ✅ 只有初始化成功才尝试领取免费额度
-    if not st.session_state.get('user_init_failed', False):
-        free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
-        if free_paragraphs > 0:
-            st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
-    else:
-        logger.warning("⚠️ 用户初始化失败，跳过额度领取")
-    
     # ✅ 只有初始化成功才从 API 加载数据
     if not st.session_state.get('user_init_failed', False):
         user_data = load_user_data(st.session_state.user_id)
