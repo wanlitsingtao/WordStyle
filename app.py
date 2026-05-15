@@ -782,6 +782,19 @@ with st.sidebar:
     # 加载用户数据
     user_data = load_user_data(st.session_state.user_id)
     
+    # ✅ 安全检查：如果用户数据加载失败，使用默认值
+    if user_data is None:
+        logger.warning(f"⚠️ 无法加载用户数据: {st.session_state.user_id}，使用默认值")
+        user_data = {
+            'paragraphs_remaining': 0,
+            'total_converted': 0,
+            'balance': 0.0,
+            'total_paragraphs_used': 0,
+            'is_active': True,
+            'created_at': '',
+            'last_login': ''
+        }
+    
     # 显示段落数和统计信息
     st.metric("剩余段落数", f"{user_data['paragraphs_remaining']:,}")
     st.metric("累计转换文档", user_data['total_converted'])
