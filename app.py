@@ -154,6 +154,9 @@ def show_history_dialog():
     
     # 从用户数据中获取转换历史
     user_data = load_user_data(st.session_state.user_id)
+    if user_data is None:
+        st.warning("⚠️ 用户数据加载失败，请刷新页面重试")
+        return
     conversion_history = user_data.get('conversion_history', [])
     
     if conversion_history:
@@ -208,127 +211,65 @@ def show_history_dialog():
 # ✅ 所有配置已从 config.py 和 utils.py 导入，不再重复定义
 # 参见：config.py, utils.py, user_manager.py, comments_manager.py
 # ==================== 初始化会话状态 ====================
-# ✅ 修复：基于客户端设备标识持久化用户ID
-# 策略：使用IP地址 + User-Agent组合作为设备指纹，确保同一终端始终使用相同用户ID
-# 优势：同一终端的所有浏览器会话共享同一用户ID，关闭后重新打开也能恢复
+# ✅ 真正的跨会话持久化：基于设备指纹从数据库查询用户
+# 优势：不依赖浏览器存储、不依赖session_state、终端级唯一性
 
 import hashlib
-import json
-from pathlib import Path
+from data_manager import generate_device_fingerprint, get_or_create_user_by_device
 
-# 🔧 关键修复：每次都重新计算设备指纹，然后查找对应的用户ID
-# 这样即使 session_state 丢失（应用重启），也能通过设备指纹恢复用户ID
-
-# 🔧 第一步：生成设备指纹（基于IP+User-Agent）
-# ⚠️ 安全修复：不再信任URL参数中的uid，防止用户伪造身份
-existing_user_id = None
-    
-# 获取客户端设备指纹
+# 🔧 第一步：获取客户端User-Agent并生成设备指纹
 try:
     headers = st.context.headers if hasattr(st, 'context') and hasattr(st.context, 'headers') else {}
-    client_ip = headers.get('X-Forwarded-For', '').split(',')[0].strip()
-    if not client_ip:
-        client_ip = headers.get('X-Real-IP', '')
-    if not client_ip:
-        client_ip = '127.0.0.1'
-    
     user_agent = headers.get('User-Agent', 'unknown')
-    device_key = f"{client_ip}|{user_agent}"
-    device_fingerprint = hashlib.md5(device_key.encode()).hexdigest()[:16]
     
-    logger.info(f"检测到客户端 - IP: {client_ip}, User-Agent: {user_agent[:50]}...")
+    # 生成设备指纹（32位MD5哈希）
+    device_fingerprint = generate_device_fingerprint(user_agent)
+    
+    logger.info(f"检测到客户端 - User-Agent: {user_agent[:80]}...")
+    logger.info(f"设备指纹: {device_fingerprint[:16]}...")
 except Exception as e:
-    logger.warning(f"无法获取客户端信息: {e}，使用备用方案")
-    import socket
-    try:
-        hostname = socket.gethostname()
-    except:
-        hostname = "default"
-    device_fingerprint = hashlib.md5(f"fallback_{hostname}".encode()).hexdigest()[:16]
+    logger.warning(f"无法获取User-Agent: {e}，使用备用方案")
+    # 备用方案：使用固定指纹（仅用于测试）
+    device_fingerprint = generate_device_fingerprint("fallback_unknown_device")
 
-# ✅ 优先从 session_state 恢复用户ID（同一会话内刷新页面）
-if 'device_fingerprint' in st.session_state and 'user_id' in st.session_state:
-    if st.session_state.device_fingerprint == device_fingerprint:
-        existing_user_id = st.session_state.user_id
-        logger.info(f"✅ 从 session_state 恢复用户ID: {existing_user_id}")
+# 🔧 第二步：通过设备指纹从数据库获取或创建用户
+try:
+    user_data = get_or_create_user_by_device(device_fingerprint, user_agent)
+    
+    # 设置session_state
+    st.session_state.user_id = user_data['user_id']
+    st.session_state.device_fingerprint = device_fingerprint
+    
+    logger.info(f"✅ 用户ID: {st.session_state.user_id}")
+    
+except Exception as e:
+    logger.error(f"❌ 获取用户数据失败: {e}")
+    # 降级方案：生成临时用户ID（不保存到数据库）
+    import time
+    temp_user_id = f"temp_{int(time.time())}"
+    st.session_state.user_id = temp_user_id
+    st.session_state.device_fingerprint = device_fingerprint
+    
+    user_data = {
+        'user_id': temp_user_id,
+        'balance': 0.0,
+        'paragraphs_remaining': 0,
+        'total_paragraphs_used': 0,
+        'total_converted': 0,
+        'is_active': False,
+        'created_at': '',
+        'last_login': '',
+    }
+    logger.warning(f"⚠️ 使用临时用户ID: {temp_user_id}")
 
-# 如果 session_state 中没有，尝试从本地文件读取（本地环境跨会话）
-if not existing_user_id:
-    user_mapping_file = Path(__file__).parent / "user_mapping.json"
-    
-    try:
-        if user_mapping_file.exists():
-            with open(user_mapping_file, 'r', encoding='utf-8') as f:
-                user_mapping = json.load(f)
-                if device_fingerprint in user_mapping:
-                    existing_user_id = user_mapping[device_fingerprint]
-                    logger.info(f"✅ 从 user_mapping.json 恢复用户ID: {existing_user_id}")
-    except Exception as e:
-        logger.error(f"读取用户映射文件失败: {e}")
+# 🔧 第三步：自动领取免费额度（会检查日期并重置）
+free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
+if free_paragraphs > 0:
+    st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
+    # 更新user_data中的额度
+    user_data['paragraphs_remaining'] = free_paragraphs
 
-if existing_user_id:
-    # 使用已存在的用户ID
-    st.session_state.user_id = existing_user_id
-    st.session_state.device_fingerprint = device_fingerprint  # ✅ 保存到 session_state
-    user_id_to_use = existing_user_id
-    logger.info(f"恢复已有用户ID: {existing_user_id}")
-else:
-    # 🔧 第二步：生成新的用户ID
-    unique_key = f"wordstyle_device_{device_fingerprint}"
-    new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
-    st.session_state.user_id = new_user_id
-    st.session_state.device_fingerprint = device_fingerprint  # ✅ 保存到 session_state
-    user_id_to_use = new_user_id
-    logger.info(f"生成新用户ID: {new_user_id} (device: {device_fingerprint})")
-    
-    # ✅ 保存设备指纹到用户ID的映射（仅本地环境有效）
-    try:
-        user_mapping = {}
-        user_mapping_file = Path(__file__).parent / "user_mapping.json"
-        if user_mapping_file.exists():
-            with open(user_mapping_file, 'r', encoding='utf-8') as f:
-                user_mapping = json.load(f)
-        
-        user_mapping[device_fingerprint] = new_user_id
-        
-        with open(user_mapping_file, 'w', encoding='utf-8') as f:
-            json.dump(user_mapping, f, ensure_ascii=False, indent=2)
-        
-        logger.info(f"✅ 已保存设备指纹映射到文件: {device_fingerprint} -> {new_user_id}")
-    except Exception as e:
-        logger.error(f"保存用户映射文件失败: {e}")
-        logger.info("ℹ️ 云端环境将依赖 session_state 持久化用户ID")
-    
-    # 使用统一数据接口（data_manager 已在顶部导入）
-    
-    # 先加载用户数据（使用统一数据接口）
-    user_data = load_user_data(user_id_to_use)
-    
-    # 如果是新用户，初始化用户数据
-    if not user_data:
-        from datetime import datetime
-        user_data = {
-            'user_id': user_id_to_use,
-            'balance': 0.0,
-            'paragraphs_remaining': 0,
-            'total_paragraphs_used': 0,
-            'total_converted': 0,
-            'is_active': True,
-            'created_at': datetime.now().isoformat(),
-            'last_login': datetime.now().isoformat(),
-        }
-    
-    # 自动领取免费额度（使用统一数据接口）
-    free_paragraphs = claim_free_paragraphs(user_id_to_use)
-    
-    # ✅ 修复Bug：更新 user_data 中的 paragraphs_remaining，防止被 register_or_login_user 覆盖
-    if free_paragraphs > 0:
-        user_data['paragraphs_remaining'] = free_paragraphs
-    
-    # 注册用户数据时传递正确的 user_data
-    register_or_login_user(user_id_to_use, user_data)
-    
-    logger.info(f"新用户 {user_id_to_use} 已创建并领取 {free_paragraphs} 免费段落")
+logger.info(f"用户 {st.session_state.user_id} 初始化完成，剩余额度: {user_data['paragraphs_remaining']}")
 
 
 # 新手引导标志
@@ -792,6 +733,43 @@ with st.sidebar:
     
     # 加载用户数据
     user_data = load_user_data(st.session_state.user_id)
+    
+    # 🔧 容错处理：如果用户数据为空，尝试重新初始化
+    if user_data is None:
+        logger.warning(f"⚠️ 用户数据加载失败: {st.session_state.user_id}，尝试重新初始化")
+        try:
+            # 通过设备指纹重新获取用户
+            device_fingerprint = st.session_state.get('device_fingerprint', '')
+            if device_fingerprint:
+                from data_manager import get_or_create_user_by_device
+                user_data = get_or_create_user_by_device(device_fingerprint)
+                st.session_state.user_id = user_data['user_id']
+                logger.info(f"✅ 重新初始化用户成功: {st.session_state.user_id}")
+            else:
+                # 降级方案：创建临时用户数据
+                user_data = {
+                    'user_id': st.session_state.user_id,
+                    'balance': 0.0,
+                    'paragraphs_remaining': 0,
+                    'paragraphs_used': 0,
+                    'total_converted': 0,
+                    'is_active': False,
+                    'created_at': '',
+                    'last_login': '',
+                }
+                logger.warning(f"⚠️ 使用临时用户数据")
+        except Exception as e:
+            logger.error(f"❌ 重新初始化用户失败: {e}")
+            user_data = {
+                'user_id': st.session_state.user_id,
+                'balance': 0.0,
+                'paragraphs_remaining': 0,
+                'paragraphs_used': 0,
+                'total_converted': 0,
+                'is_active': False,
+                'created_at': '',
+                'last_login': '',
+            }
     
     # 显示段落数和统计信息
     st.metric("剩余段落数", f"{user_data['paragraphs_remaining']:,}")
@@ -1655,6 +1633,9 @@ def show_style_mapping_dialog():
     if 'file_style_mappings' not in st.session_state:
         # 从用户数据中加载样式映射
         user_data = load_user_data(st.session_state.user_id)
+        if user_data is None:
+            st.warning("⚠️ 用户数据加载失败，请刷新页面重试")
+            return
         st.session_state.file_style_mappings = user_data.get('style_mappings', {})
     
     # 如果有多个文件，先选择要配置的文件
@@ -1734,6 +1715,9 @@ def show_style_mapping_dialog():
         if st.button("✅ 确定", key="confirm_mapping_btn", type="primary", use_container_width=True):
             # 保存样式映射到用户数据
             user_data = load_user_data(st.session_state.user_id)
+            if user_data is None:
+                st.error("❌ 用户数据加载失败，无法保存")
+                return
             user_data['style_mappings'] = st.session_state.file_style_mappings
             save_user_data(user_data, st.session_state.user_id)
             st.success("✅ 样式映射已保存！")
@@ -1744,6 +1728,9 @@ def show_style_mapping_dialog():
             st.session_state.file_style_mappings[selected_file.name] = {}
             # 保存样式映射到用户数据
             user_data = load_user_data(st.session_state.user_id)
+            if user_data is None:
+                st.error("❌ 用户数据加载失败，无法保存")
+                return
             user_data['style_mappings'] = st.session_state.file_style_mappings
             save_user_data(user_data, st.session_state.user_id)
             st.info("已恢复默认映射")
