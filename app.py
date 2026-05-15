@@ -218,99 +218,75 @@ if 'user_id' not in st.session_state:
     import json
     from pathlib import Path
     
-    # 🔧 第一步：尝试从 URL 参数恢复用户ID
-    url_user_id = None
+    # 🔧 第一步：生成设备指纹（基于IP+User-Agent）
+    # ️ 安全修复：不再信任URL参数中的uid，防止用户伪造身份
+    existing_user_id = None
+        
+    # 获取客户端设备指纹
     try:
-        # Streamlit 1.23+ 支持 st.query_params
-        if hasattr(st, 'query_params'):
-            params = st.query_params
-            if 'uid' in params:
-                url_user_id = params['uid']
-                logger.info(f"✅ 从 URL 参数恢复用户ID: {url_user_id}")
+        headers = st.context.headers if hasattr(st, 'context') and hasattr(st.context, 'headers') else {}
+        client_ip = headers.get('X-Forwarded-For', '').split(',')[0].strip()
+        if not client_ip:
+            client_ip = headers.get('X-Real-IP', '')
+        if not client_ip:
+            client_ip = '127.0.0.1'
+            
+        user_agent = headers.get('User-Agent', 'unknown')
+        device_key = f"{client_ip}|{user_agent}"
+        device_fingerprint = hashlib.md5(device_key.encode()).hexdigest()[:16]
+            
+        logger.info(f"检测到客户端 - IP: {client_ip}, User-Agent: {user_agent[:50]}...")
     except Exception as e:
-        logger.debug(f"URL 参数读取失败: {e}")
-    
-    if url_user_id and len(url_user_id) == 12:
-        # URL 中有有效的用户ID，直接使用
-        st.session_state.user_id = url_user_id
-        logger.info(f"使用 URL 参数中的用户ID: {url_user_id}")
+        logger.warning(f"无法获取客户端信息: {e}，使用备用方案")
+        import socket
+        try:
+            hostname = socket.gethostname()
+        except:
+            hostname = "default"
+        device_fingerprint = hashlib.md5(f"fallback_{hostname}".encode()).hexdigest()[:16]
+        
+    # 从本地文件读取该设备对应的用户ID
+    user_mapping_file = Path(__file__).parent / "user_mapping.json"
+        
+    try:
+        if user_mapping_file.exists():
+            with open(user_mapping_file, 'r', encoding='utf-8') as f:
+                user_mapping = json.load(f)
+                if device_fingerprint in user_mapping:
+                    existing_user_id = user_mapping[device_fingerprint]
+                    logger.info(f"✅ 从 user_mapping.json 恢复用户ID: {existing_user_id}")
+    except Exception as e:
+        logger.error(f"读取用户映射文件失败: {e}")
+        
+    if existing_user_id:
+        # 使用已存在的用户ID
+        st.session_state.user_id = existing_user_id
+        user_id_to_use = existing_user_id
+        logger.info(f"恢复已有用户ID: {existing_user_id}")
     else:
-        # 🔧 第二步：URL 参数中没有，尝试从 user_mapping.json 恢复（本地环境）
-        existing_user_id = None
-        
-        # 获取客户端设备指纹
-        try:
-            headers = st.context.headers if hasattr(st, 'context') and hasattr(st.context, 'headers') else {}
-            client_ip = headers.get('X-Forwarded-For', '').split(',')[0].strip()
-            if not client_ip:
-                client_ip = headers.get('X-Real-IP', '')
-            if not client_ip:
-                client_ip = '127.0.0.1'
+        # 🔧 第二步：生成新的用户ID
+        unique_key = f"wordstyle_device_{device_fingerprint}"
+        new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
+        st.session_state.user_id = new_user_id
+        user_id_to_use = new_user_id
+        logger.info(f"生成新用户ID: {new_user_id} (device: {device_fingerprint})")
             
-            user_agent = headers.get('User-Agent', 'unknown')
-            device_key = f"{client_ip}|{user_agent}"
-            device_fingerprint = hashlib.md5(device_key.encode()).hexdigest()[:16]
-            
-            logger.info(f"检测到客户端 - IP: {client_ip}, User-Agent: {user_agent[:50]}...")
-        except Exception as e:
-            logger.warning(f"无法获取客户端信息: {e}，使用备用方案")
-            import socket
-            try:
-                hostname = socket.gethostname()
-            except:
-                hostname = "default"
-            device_fingerprint = hashlib.md5(f"fallback_{hostname}".encode()).hexdigest()[:16]
-        
-        # 从本地文件读取该设备对应的用户ID
-        user_mapping_file = Path(__file__).parent / "user_mapping.json"
-        
+        # ✅ 保存设备指纹到用户ID的映射（本地环境）
         try:
+            user_mapping = {}
             if user_mapping_file.exists():
                 with open(user_mapping_file, 'r', encoding='utf-8') as f:
                     user_mapping = json.load(f)
-                    if device_fingerprint in user_mapping:
-                        existing_user_id = user_mapping[device_fingerprint]
-                        logger.info(f"✅ 从 user_mapping.json 恢复用户ID: {existing_user_id}")
+                
+            user_mapping[device_fingerprint] = new_user_id
+                
+            with open(user_mapping_file, 'w', encoding='utf-8') as f:
+                json.dump(user_mapping, f, ensure_ascii=False, indent=2)
+                
+            logger.info(f"✅ 已保存设备指纹映射到文件: {device_fingerprint} -> {new_user_id}")
         except Exception as e:
-            logger.error(f"读取用户映射文件失败: {e}")
-        
-        if existing_user_id:
-            # 使用已存在的用户ID
-            st.session_state.user_id = existing_user_id
-            user_id_to_use = existing_user_id
-            logger.info(f"恢复已有用户ID: {existing_user_id}")
-        else:
-            # 🔧 第三步：生成新的用户ID
-            unique_key = f"wordstyle_device_{device_fingerprint}"
-            new_user_id = hashlib.md5(unique_key.encode()).hexdigest()[:12]
-            st.session_state.user_id = new_user_id
-            user_id_to_use = new_user_id
-            logger.info(f"生成新用户ID: {new_user_id} (device: {device_fingerprint})")
-            
-            # ✅ 保存设备指纹到用户ID的映射（本地环境）
-            try:
-                user_mapping = {}
-                if user_mapping_file.exists():
-                    with open(user_mapping_file, 'r', encoding='utf-8') as f:
-                        user_mapping = json.load(f)
-                
-                user_mapping[device_fingerprint] = new_user_id
-                
-                with open(user_mapping_file, 'w', encoding='utf-8') as f:
-                    json.dump(user_mapping, f, ensure_ascii=False, indent=2)
-                
-                logger.info(f"✅ 已保存设备指纹映射到文件: {device_fingerprint} -> {new_user_id}")
-            except Exception as e:
-                logger.error(f"保存用户映射文件失败: {e}")
-                logger.warning("⚠️ 云端环境无法持久化 user_mapping.json")
-            
-            # ✅ 关键：将用户ID写入 URL 参数（实现持久化）
-            try:
-                if hasattr(st, 'query_params'):
-                    st.query_params['uid'] = new_user_id
-                    logger.info(f"✅ 已将用户ID写入 URL 参数: {new_user_id}")
-            except Exception as e:
-                logger.warning(f"写入 URL 参数失败: {e}")
+            logger.error(f"保存用户映射文件失败: {e}")
+            logger.warning("⚠️ 云端环境无法持久化 user_mapping.json")
         
         # 使用统一数据接口（data_manager 已在顶部导入）
         
