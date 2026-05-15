@@ -648,9 +648,15 @@ elif DATA_SOURCE == "api":
         def _claim_free(user_id=None):
             """领取免费段落（API 模式）"""
             if user_id:
+                logger.info(f"🌐 API请求: POST /users/{user_id}/claim-free")
                 result = _make_api_request(f"/users/{user_id}/claim-free", method="post")
+                logger.info(f"🔍 API响应: {result}")
                 if result.get('success'):
-                    return result.get('paragraphs', 0)
+                    paragraphs = result.get('paragraphs', 0)
+                    logger.info(f"✅ 领取成功: {paragraphs} 段落")
+                    return paragraphs
+                else:
+                    logger.warning(f"⚠️ 领取失败: {result.get('error', '未知错误')}")
             return 0
         
         def _recharge_user(amount, package_label, user_id=None):

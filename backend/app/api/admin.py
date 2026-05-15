@@ -159,10 +159,12 @@ def get_or_create_user_by_device_api(
         用户信息字典
     """
     from datetime import datetime
-    from config import FREE_PARAGRAPHS_DAILY
     import hashlib
     
     try:
+        # 硬编码免费段落数（与前端 config.py 的 FREE_PARAGRAPHS_DAILY 保持一致）
+        FREE_PARAGRAPHS_DAILY = 10000
+        
         # 1. 优先通过device_fingerprint查询
         user = db.query(User).filter(User.device_fingerprint == device_fingerprint).first()
         

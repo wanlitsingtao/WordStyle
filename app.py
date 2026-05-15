@@ -264,11 +264,17 @@ except Exception as e:
 
 # 🔧 第三步：自动领取免费额度（会检查日期并重置）
 # 对所有用户类型都尝试领取免费额度（包括降级方案的备用用户）
+logger.info(f"🔍 开始领取免费额度，用户ID: {st.session_state.user_id}")
 free_paragraphs = claim_free_paragraphs(st.session_state.user_id)
+logger.info(f"🔍 领取结果: {free_paragraphs} 段落")
+
 if free_paragraphs > 0:
     st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
     # 更新user_data中的额度
     user_data['paragraphs_remaining'] = free_paragraphs
+    logger.info(f"✅ 免费额度领取成功，更新后剩余额度: {user_data['paragraphs_remaining']}")
+else:
+    logger.warning(f"⚠️ 免费额度领取失败或已领取过，当前额度: {user_data.get('paragraphs_remaining', 0)}")
 
 logger.info(f"用户 {st.session_state.user_id} 初始化完成，剩余额度: {user_data['paragraphs_remaining']}")
 
@@ -951,7 +957,6 @@ if current_source_files:
         if not st.session_state.get('show_download_buttons', False):
             if total_paragraphs > user_data['paragraphs_remaining']:
                 st.error(f"❌ 余额不足！需要 {total_paragraphs:,}，剩余 {user_data['paragraphs_remaining']:,}")
-                st.warning("请先充值")
 
 # 模板文档上传（上下排列）
 # 使用 session_state 保持上传器状态
