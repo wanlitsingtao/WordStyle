@@ -738,7 +738,22 @@ with st.sidebar:
             st.toast(f"🎉 欢迎！今日免费额度已重置为 {free_paragraphs:,} 段", icon="🎁")
     
     # 加载用户数据
-    user_data = load_user_data(st.session_state.user_id)
+    # ️ 只有正常用户ID才从API加载数据，临时用户使用本地默认数据
+    if not st.session_state.user_id.startswith('temp_'):
+        user_data = load_user_data(st.session_state.user_id)
+    else:
+        # 临时用户：使用本地默认数据
+        user_data = {
+            'user_id': st.session_state.user_id,
+            'balance': 0.0,
+            'paragraphs_remaining': 0,
+            'paragraphs_used': 0,
+            'total_converted': 0,
+            'is_active': False,
+            'created_at': '',
+            'last_login': '',
+        }
+        logger.warning(f"⚠️ 临时用户 {st.session_state.user_id} 使用本地默认数据")
     
     # 🔧 容错处理：如果用户数据为空，尝试重新初始化
     if user_data is None:
