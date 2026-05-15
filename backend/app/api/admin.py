@@ -366,22 +366,37 @@ def create_or_update_user(user_id: str, user_data: dict, db: Session = Depends(g
 
 @router.post("/users/{user_id}/claim-free")
 def claim_free_paragraphs(user_id: str, db: Session = Depends(get_db)):
-    """领取免费段落（供 API 模式调用）"""
+    """领取免费段落（供 API 模式调用）- 每日只领取一次"""
     from app.config import FREE_PARAGRAPHS_DAILY
-    from datetime import datetime
+    from datetime import datetime, date
     
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return {'success': False, 'error': '用户不存在'}
     
-    # 设置免费段落数
+    # 检查今天是否已经领取过
+    today = date.today()
+    if user.last_claim_date:
+        last_claim_date = user.last_claim_date.date() if hasattr(user.last_claim_date, 'date') else user.last_claim_date
+        if last_claim_date == today:
+            # 今天已经领取过，返回当前剩余额度
+            return {
+                'success': True,
+                'paragraphs': 0,  # 返回0表示没有新领取
+                'message': '今日已领取过免费额度',
+                'already_claimed': True
+            }
+    
+    # 设置免费段落数并记录领取日期
     user.paragraphs_remaining = FREE_PARAGRAPHS_DAILY
+    user.last_claim_date = datetime.now()
     db.commit()
     
     return {
         'success': True,
         'paragraphs': FREE_PARAGRAPHS_DAILY,
-        'message': f'已领取 {FREE_PARAGRAPHS_DAILY} 个免费段落'
+        'message': f'已领取 {FREE_PARAGRAPHS_DAILY} 个免费段落',
+        'already_claimed': False
     }
 
 @router.post("/users/{user_id}/deduct")
