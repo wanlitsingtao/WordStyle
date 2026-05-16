@@ -180,6 +180,7 @@ def get_or_create_user_by_device_api(
                 'paragraphs_remaining': user.paragraphs_remaining,
                 'balance': float(user.balance or 0),
                 'total_converted': user.total_converted,
+                'total_paragraphs_used': user.total_paragraphs_used,  # ✅ 修复：添加累计使用段落数字段
                 'message': '用户已存在'
             }
         
