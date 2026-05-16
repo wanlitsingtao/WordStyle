@@ -100,6 +100,7 @@ if DATA_SOURCE == "local":
                 'is_active': True,
                 'created_at': datetime.now().isoformat(),
                 'last_login': datetime.now().isoformat(),
+                'conversion_history': [],  # ✅ 添加转换历史字段
             }
             
             # 保存用户数据
@@ -718,6 +719,7 @@ elif DATA_SOURCE == "api":
                     'is_active': True,
                     'created_at': '',
                     'last_login': '',
+                    'conversion_history': [],  # ✅ 添加转换历史字段
                 }
             else:
                 error_msg = result.get('message', '未知错误')
@@ -916,6 +918,7 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
                     'is_active': bool(user.is_active),
                     'created_at': user.created_at.isoformat() if user.created_at else '',
                     'last_login': user.last_login.isoformat() if user.last_login else '',
+                    'conversion_history': [],  # ✅ 添加转换历史字段
                 }
                 
                 return user_data
@@ -947,6 +950,7 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
                 'is_active': True,
                 'created_at': datetime.now().isoformat(),
                 'last_login': datetime.now().isoformat(),
+                'conversion_history': [],  # ✅ 添加转换历史字段
             }
         finally:
             db.close()

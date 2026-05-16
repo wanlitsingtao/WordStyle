@@ -264,6 +264,7 @@ except Exception as e:
         'is_active': False,
         'created_at': datetime.now().isoformat(),
         'last_login': datetime.now().isoformat(),
+        'conversion_history': [],  # ✅ 添加转换历史字段
     }
     logger.warning(f"⚠️ 使用临时用户ID（无额度）: {fallback_id}")
 
@@ -789,6 +790,7 @@ with st.sidebar:
                     'is_active': False,
                     'created_at': '',
                     'last_login': '',
+                    'conversion_history': [],  # ✅ 添加转换历史字段
                 }
                 logger.warning(f"⚠️ 使用临时用户数据")
         except Exception as e:
@@ -802,6 +804,7 @@ with st.sidebar:
                 'is_active': False,
                 'created_at': '',
                 'last_login': '',
+                'conversion_history': [],  # ✅ 添加转换历史字段
             }
     
     # 显示段落数和统计信息
@@ -1431,6 +1434,11 @@ else:
                         'paragraphs_charged': total_success_paragraphs,
                         'mode': 'foreground'
                     }
+                    
+                    # ✅ 防御性编程：确保conversion_history字段存在
+                    if 'conversion_history' not in user_data:
+                        user_data['conversion_history'] = []
+                    
                     user_data['conversion_history'].append(conversion_record)
                     
                     # 保存用户数据（使用统一数据接口）
