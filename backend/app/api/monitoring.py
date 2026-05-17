@@ -56,28 +56,11 @@ def get_metrics(db: Session = Depends(get_db)):
         ))
         metrics['processing_tasks'] = result.scalar() or 0
         
-        # 今日订单数
-        result = db.execute(text(
-            "SELECT COUNT(*) FROM orders WHERE DATE(created_at) = CURRENT_DATE"
-        ))
-        metrics['daily_orders'] = result.scalar() or 0
-        
-        # 今日收入
-        result = db.execute(text(
-            "SELECT COALESCE(SUM(amount), 0) FROM orders "
-            "WHERE status = 'PAID' AND DATE(paid_at) = CURRENT_DATE"
-        ))
-        metrics['daily_revenue'] = float(result.scalar() or 0)
-        
-        # 总订单数
-        result = db.execute(text("SELECT COUNT(*) FROM orders"))
-        metrics['total_orders'] = result.scalar() or 0
-        
-        # 总收入
-        result = db.execute(text(
-            "SELECT COALESCE(SUM(amount), 0) FROM orders WHERE status = 'PAID'"
-        ))
-        metrics['total_revenue'] = float(result.scalar() or 0)
+        # 订单相关统计已移除（项目无充值/订单功能）
+        metrics['daily_orders'] = 0
+        metrics['daily_revenue'] = 0.0
+        metrics['total_orders'] = 0
+        metrics['total_revenue'] = 0.0
         
         # 系统配置
         result = db.execute(text(
