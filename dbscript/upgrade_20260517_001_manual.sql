@@ -40,7 +40,10 @@ UPDATE conversion_tasks
 SET paragraphs = 0 
 WHERE paragraphs IS NULL;
 
-RAISE NOTICE '✅ 已更新 conversion_tasks 表中 NULL 值的 paragraphs 字段';
+DO $$
+BEGIN
+    RAISE NOTICE '✅ 已更新 conversion_tasks 表中 NULL 值的 paragraphs 字段';
+END $$;
 
 -- =====================================================
 -- 第二部分：feedbacks表验证
@@ -126,7 +129,10 @@ END $$;
 DELETE FROM alembic_version;
 INSERT INTO alembic_version (version_num) VALUES ('20260517_001');
 
-RAISE NOTICE '✅ 成功更新 alembic_version 到 20260517_001';
+DO $$
+BEGIN
+    RAISE NOTICE '✅ 成功更新 alembic_version 到 20260517_001';
+END $$;
 
 -- =====================================================
 -- 第五部分：验证升级结果
@@ -170,14 +176,17 @@ SELECT
     0 AS null_paragraphs
 FROM feedbacks;
 
-COMMIT;
+DO $$
+BEGIN
+    RAISE NOTICE '';
+    RAISE NOTICE '=================================================';
+    RAISE NOTICE '✅ 数据库升级完成！';
+    RAISE NOTICE '=================================================';
+    RAISE NOTICE '升级内容：';
+    RAISE NOTICE '1. conversion_tasks表添加paragraphs字段';
+    RAISE NOTICE '2. feedbacks表结构验证';
+    RAISE NOTICE '3. alembic_version更新到20260517_001';
+    RAISE NOTICE '=================================================';
+END $$;
 
-RAISE NOTICE '';
-RAISE NOTICE '=================================================';
-RAISE NOTICE '✅ 数据库升级完成！';
-RAISE NOTICE '=================================================';
-RAISE NOTICE '升级内容：';
-RAISE NOTICE '1. conversion_tasks表添加paragraphs字段';
-RAISE NOTICE '2. feedbacks表结构验证';
-RAISE NOTICE '3. alembic_version更新到20260517_001';
-RAISE NOTICE '=================================================';
+COMMIT;
