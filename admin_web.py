@@ -20,7 +20,7 @@ from data_manager import (
     get_data_source,
     DATA_SOURCE as ACTUAL_DATA_SOURCE
 )
-from comments_manager import load_feedbacks, get_feedback_stats, delete_comment
+from comments_manager import delete_comment  # ✅ 修复：只保留delete_comment，其他改用API
 from config import DATA_SOURCE as CONFIG_DATA_SOURCE, DATABASE_URL
 
 # 在页面顶部显示数据源配置信息（用于调试）
@@ -383,15 +383,18 @@ def show_task_management():
                     'FAILED': '❌'
                 }.get(task.get('status', ''), '❓')
                 
+                # ✅ 修复：适配ConversionTask模型的实际字段
+                # 从source_file提取文件名
+                source_file = task.get('source_file', '') or ''
+                filename = source_file.split('/')[-1].split('\\')[-1] if source_file else '-'
+                
                 task_data.append({
-                    "任务ID": task.get('task_id', '-'),
+                    "任务ID": str(task.get('id', ''))[:8] + "..." if task.get('id') else '-',
                     "用户ID": str(task.get('user_id', ''))[:8] + "..." if task.get('user_id') else '-',
-                    "文件名": task.get('filename', '-') or '-',
-                    "段落数": task.get('paragraphs', '-') or '-',
-                    "费用": f"¥{task.get('cost', 0):.2f}" if task.get('cost') else '-',
+                    "源文件": filename,
                     "状态": f"{status_emoji} {task.get('status', '')}",
                     "进度": f"{task.get('progress', 0)}%",
-                    "错误信息": task.get('error_message', '-') or '-',
+                    "错误信息": (task.get('error_message', '-') or '-')[:50],
                     "创建时间": format_datetime(task.get('created_at', '')),
                     "完成时间": format_datetime(task.get('completed_at', ''))
                 })
@@ -407,8 +410,8 @@ def show_task_management():
                 # 使用统一数据访问层
                 from data_manager import update_task_status
                 
-                # 查找任务
-                task_found = any(t['task_id'] == selected_task_id for t in all_tasks)
+                # ✅ 修复：查找任务时使用id字段而不是task_id
+                task_found = any(str(t.get('id', '')) == selected_task_id for t in all_tasks)
                 
                 if task_found:
                     st.success(f"找到任务: {selected_task_id}")
@@ -454,34 +457,125 @@ def show_feedback_management():
     st.markdown("---")
     
     try:
-        # 获取反馈统计
-        stats = get_feedback_stats()
+        # ✅ 修复：使用 API 获取反馈统计（兼容多实例部署）
+        import requests
+        from config import BACKEND_URL
+        
+        if BACKEND_URL and ACTUAL_DATA_SOURCE == 'api':
+            # API 模式：通过后端 API 获取统计
+            try:
+                api_url = f"{BACKEND_URL.rstrip('/')}/api/feedback/stats"
+                response = requests.get(api_url, timeout=10)
+                response.raise_for_status()
+                stats = response.json()
+            except Exception as e:
+                st.error(f"❌ 加载统计失败: {str(e)}")
+                stats = {'total': 0, 'by_type': {}, 'by_status': {}}
+        else:
+            # 本地/Supabase 模式：使用本地文件（兜底逻辑）
+            from comments_manager import get_feedback_stats
+            stats = get_feedback_stats()
         
         # 显示统计信息
         col1, col2, col3 = st.columns(3)
         with col1:
             st.metric("📝 总反馈数", stats.get('total', 0))
         with col2:
-            st.metric("⏳ 待处理", stats.get('pending', 0))
+            st.metric("⏳ 待处理", stats.get('by_status', {}).get('pending', 0))  # ✅ 修复：使用正确的统计字段
         with col3:
-            st.metric("✅ 已处理", stats.get('processed', 0))
+            st.metric("✅ 已处理", stats.get('by_status', {}).get('resolved', 0))  # ✅ 修复：使用resolved而非processed
         
         st.markdown("---")
         
-        # 加载所有反馈
-        all_feedbacks = load_feedbacks()
+        # ✅ 修复：统一数据源 - 始终从Supabase数据库读取反馈
+        # 不再使用本地JSON文件，确保与管理页面数据一致
+        all_feedbacks = []
+        
+        if BACKEND_URL and ACTUAL_DATA_SOURCE == 'api':
+            # API 模式：通过后端 API 获取反馈
+            try:
+                api_url = f"{BACKEND_URL.rstrip('/')}/api/feedback/list"
+                response = requests.get(api_url, timeout=10)
+                response.raise_for_status()
+                all_feedbacks = response.json()
+            except Exception as e:
+                st.error(f"❌ 加载反馈失败: {str(e)}")
+                all_feedbacks = []
+        else:
+            # Supabase 模式：直接从数据库查询
+            try:
+                from data_manager import get_all_feedbacks_from_db
+                all_feedbacks = get_all_feedbacks_from_db()
+            except Exception as e:
+                st.error(f"❌ 从数据库加载反馈失败: {str(e)}")
+                all_feedbacks = []
         
         if all_feedbacks:
-            # 显示反馈列表
+            # ✅ 新增：分页功能
+            PAGE_SIZE = 10  # 每页显示10条
+            total_pages = (len(all_feedbacks) + PAGE_SIZE - 1) // PAGE_SIZE
+            
+            # 分页控件
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                current_page = st.number_input(
+                    "页码",
+                    min_value=1,
+                    max_value=total_pages if total_pages > 0 else 1,
+                    value=1,
+                    step=1,
+                    format="%d",
+                    help=f"共 {len(all_feedbacks)} 条反馈，{total_pages} 页"
+                )
+            
+            # 计算当前页的数据范围
+            start_idx = (current_page - 1) * PAGE_SIZE
+            end_idx = min(start_idx + PAGE_SIZE, len(all_feedbacks))
+            page_feedbacks = all_feedbacks[start_idx:end_idx]
+            
+            st.info(f"📄 第 {current_page}/{total_pages} 页，显示 {start_idx + 1}-{end_idx} 条，共 {len(all_feedbacks)} 条")
+            
+            # 显示反馈列表（仅当前页）
             feedback_data = []
-            for fb in all_feedbacks:
+            for fb in page_feedbacks:
+                # ✅ 修复：兼容多种字段名（API返回、数据库直接读取、本地存储）
+                # ID字段：优先使用id，其次feedback_id
+                fb_id_raw = fb.get('id') or fb.get('feedback_id') or ''
+                fb_id = str(fb_id_raw)
+                if fb_id and len(fb_id) > 8:
+                    fb_id = fb_id[:8] + "..."
+                
+                # 时间字段：优先使用created_at，其次timestamp
+                submit_time = fb.get('created_at') or fb.get('timestamp') or ''
+                
+                # 类型字段：优先使用feedback_type，其次type
+                feedback_type = fb.get('feedback_type') or fb.get('type') or '-'
+                
+                # 用户ID字段
+                user_id = fb.get('user_id') or '-'
+                if user_id and len(str(user_id)) > 12:
+                    user_id = str(user_id)[:12] + "..."
+                
+                # 标题/内容字段
+                title = fb.get('title', '-')
+                content_display = title[:50] + "..." if len(title) > 50 else title
+                
+                # 详细描述字段（用于表格显示）
+                description = fb.get('description', '')
+                desc_display = description[:30] + "..." if description and len(description) > 30 else (description or '-')
+                
+                # 状态字段
+                status = fb.get('status', 'pending')
+                status_display = "✅ 已处理" if status == 'resolved' else ("🔄 处理中" if status == 'processing' else "⏳ 待处理")
+                
                 feedback_data.append({
-                    "ID": fb.get('id', '-'),
-                    "用户ID": str(fb.get('user_id', ''))[:12] + "..." if fb.get('user_id') else '-',
-                    "类型": fb.get('type', '-'),
-                    "内容": fb.get('content', '-')[:50] + "..." if len(fb.get('content', '')) > 50 else fb.get('content', '-'),
-                    "状态": "✅ 已处理" if fb.get('processed', False) else "⏳ 待处理",
-                    "提交时间": format_datetime(fb.get('created_at', '')),
+                    "ID": fb_id if fb_id else '-',
+                    "用户ID": user_id,
+                    "类型": feedback_type,
+                    "标题": content_display,
+                    "详细描述": desc_display,
+                    "状态": status_display,
+                    "提交时间": submit_time,
                 })
             
             st.dataframe(feedback_data, use_container_width=True, hide_index=True)
@@ -501,27 +595,48 @@ def show_feedback_management():
                     # 显示完整内容
                     with st.expander("查看完整反馈内容", expanded=True):
                         st.write(f"**用户ID:** {feedback_found.get('user_id', '-')}")
-                        st.write(f"**类型:** {feedback_found.get('type', '-')}")
-                        st.write(f"**内容:** {feedback_found.get('content', '-')}")
-                        st.write(f"**提交时间:** {format_datetime(feedback_found.get('created_at', ''))}")
-                        st.write(f"**状态:** {'✅ 已处理' if feedback_found.get('processed', False) else '⏳ 待处理'}")
+                        st.write(f"**类型:** {feedback_found.get('feedback_type', '-')}")  # ✅ 修复：使用正确的字段名
+                        st.write(f"**标题:** {feedback_found.get('title', '-')}")  # ✅ 修复：使用title
+                        st.write(f"**描述:** {feedback_found.get('description', '-')}")  # ✅ 修复：使用description
+                        st.write(f"**联系方式:** {feedback_found.get('contact', '-')}")
+                        st.write(f"**提交时间:** {feedback_found.get('created_at', feedback_found.get('timestamp', ''))}")  # ✅ 修复：优先使用created_at
+                        status_text = "✅ 已处理" if feedback_found.get('status') == 'resolved' else ("🔄 处理中" if feedback_found.get('status') == 'processing' else "⏳ 待处理")
+                        st.write(f"**状态:** {status_text}")  # ✅ 修复：使用status字段
                     
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        if not feedback_found.get('processed', False):
+                        if feedback_found.get('status') != 'resolved':  # ✅ 修复：使用status字段
                             if st.button("标记为已处理", key=f"process_{selected_feedback_id}"):
-                                from comments_manager import save_feedbacks
-                                feedback_found['processed'] = True
-                                # 重新保存
-                                all_fb = load_feedbacks()
-                                for fb in all_fb:
-                                    if fb.get('id') == selected_feedback_id:
-                                        fb['processed'] = True
-                                        break
-                                save_feedbacks(all_fb)
-                                st.success("✅ 已标记为已处理")
-                                st.rerun()
+                                # ✅ 修复：使用 API 更新状态
+                                import requests
+                                from config import BACKEND_URL
+                                
+                                if BACKEND_URL and ACTUAL_DATA_SOURCE == 'api':
+                                    try:
+                                        api_url = f"{BACKEND_URL.rstrip('/')}/api/feedback/update-status/{selected_feedback_id}"
+                                        response = requests.put(
+                                            api_url,
+                                            params={'status': 'resolved'},
+                                            timeout=10
+                                        )
+                                        response.raise_for_status()
+                                        st.success("✅ 已标记为已处理")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ 更新失败: {str(e)}")
+                                else:
+                                    # 本地模式：使用本地文件（兜底逻辑）
+                                    from comments_manager import save_feedbacks, load_feedbacks
+                                    feedback_found['status'] = 'resolved'
+                                    all_fb = load_feedbacks()
+                                    for fb in all_fb:
+                                        if fb.get('id') == selected_feedback_id:
+                                            fb['status'] = 'resolved'
+                                            break
+                                    save_feedbacks(all_fb)
+                                    st.success("✅ 已标记为已处理")
+                                    st.rerun()
                     
                     with col2:
                         if st.button("删除反馈", key=f"delete_{selected_feedback_id}", type="secondary"):

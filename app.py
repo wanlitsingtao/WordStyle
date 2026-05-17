@@ -40,12 +40,12 @@ sys.path.insert(0, os.path.dirname(__file__))
 from config import (
     DEFAULT_ANSWER_TEXT, DEFAULT_ANSWER_STYLE, DEFAULT_ANSWER_MODE,
     ANSWER_MODE_OPTIONS, DEFAULT_LIST_BULLET, PAGE_TITLE, PAGE_ICON,
-    LAYOUT, SIDEBAR_STATE, FREE_PARAGRAPHS_DAILY
+    LAYOUT, SIDEBAR_STATE, FREE_PARAGRAPHS_DAILY, DATA_SOURCE  # ✅ 修复：添加DATA_SOURCE导入
 )
 
 # 导入工具函数
 from utils import (
-    sanitize_html, sanitize_filename, validate_docx_file
+    sanitize_html, sanitize_filename, validate_docx_file, convert_server_time_to_local
 )
 
 # 导入用户管理
@@ -71,21 +71,31 @@ from doc_converter import DocumentConverter
 @st.dialog("💡 提交需求或反馈")
 def show_feedback_dialog():
     """显示反馈提交对话框"""
+    # ✅ 修复：每次打开对话框时重置表单状态
+    if 'feedback_form_reset' not in st.session_state:
+        st.session_state.feedback_form_reset = 0
+    
+    # 使用唯一的key前缀，每次打开时递增，强制重置所有表单控件
+    form_key_prefix = f"feedback_{st.session_state.feedback_form_reset}"
+    
     st.markdown("我们非常重视您的意见，请告诉我们您的想法！")
     
     # 反馈类型
     feedback_type = st.selectbox(
         "反馈类型",
         ["功能建议", "Bug报告", "使用问题", "其他"],
-        help="请选择反馈的类型"
+        help="请选择反馈的类型",
+        key=f"{form_key_prefix}_type"  # ✅ 新增：唯一key
     )
     
     # 标题（可选，有默认值）
+    default_title = f"{feedback_type} - {datetime.now().strftime('%Y-%m-%d')}"
     feedback_title = st.text_input(
         "标题（可选）",
-        value=f"{feedback_type} - {datetime.now().strftime('%Y-%m-%d')}",
+        value=default_title,
         placeholder="也可以自定义标题",
-        help="如果不填写，将自动生成默认标题"
+        help="如果不填写，将自动生成默认标题",
+        key=f"{form_key_prefix}_title"  # ✅ 新增：唯一key
     )
     
     # 详细描述
@@ -93,14 +103,16 @@ def show_feedback_dialog():
         "详细描述",
         placeholder="请详细描述您的需求、问题或建议...\n\n例如：\n- 我希望增加XX功能\n- 我遇到了XX问题\n- 我觉得XX可以改进",
         height=150,
-        help="越详细越好，帮助我们更好地理解您的需求"
+        help="越详细越好，帮助我们更好地理解您的需求",
+        key=f"{form_key_prefix}_description"  # ✅ 新增：唯一key
     )
     
     # 联系方式（可选）
     feedback_contact = st.text_input(
         "联系方式（可选）",
         placeholder="微信/邮箱/电话",
-        help="如果需要我们回复您，请留下联系方式"
+        help="如果需要我们回复您，请留下联系方式",
+        key=f"{form_key_prefix}_contact"  # ✅ 新增：唯一key
     )
     
     col1, col2 = st.columns([1, 1])
@@ -122,18 +134,44 @@ def show_feedback_dialog():
                     if not feedback_title or feedback_title.strip() == "":
                         feedback_title = f"{feedback_type} - {datetime.now().strftime('%Y-%m-%d')}"
                     
-                    # 使用本地存储保存反馈
-                    feedback = add_feedback(
-                        user_id=st.session_state.user_id,
-                        feedback_type=type_map.get(feedback_type, 'other'),
-                        title=feedback_title,
-                        description=feedback_description,
-                        contact=feedback_contact
-                    )
+                    # ✅ 修复：使用 API 提交反馈（兼容多实例部署）
+                    from config import BACKEND_URL
+                    import requests
+                    
+                    if BACKEND_URL and DATA_SOURCE == 'api':
+                        # API 模式：通过后端 API 提交
+                        api_url = f"{BACKEND_URL.rstrip('/')}/api/feedback/submit"
+                        response = requests.post(
+                            api_url,
+                            json={
+                                'user_id': st.session_state.user_id,
+                                'feedback_type': type_map.get(feedback_type, 'other'),
+                                'title': feedback_title,
+                                'description': feedback_description,
+                                'contact': feedback_contact
+                            },
+                            timeout=10
+                        )
+                        response.raise_for_status()
+                        result = response.json()
+                        feedback_id = result.get('id', result.get('feedback_id', 'N/A'))  # ✅ 修复：兼容两种字段名
+                    else:
+                        # 本地/Supabase 模式：使用本地存储（兜底逻辑）
+                        feedback = add_feedback(
+                            user_id=st.session_state.user_id,
+                            feedback_type=type_map.get(feedback_type, 'other'),
+                            title=feedback_title,
+                            description=feedback_description,
+                            contact=feedback_contact
+                        )
+                        feedback_id = feedback['id']
                     
                     st.balloons()  # 🎈 彩带庆祝
                     st.success(f"✅ 反馈提交成功！感谢您的宝贵意见")
-                    st.info(f"📝 反馈ID: {feedback['id']}")
+                    st.info(f"📝 反馈ID: {feedback_id}")
+                    
+                    # ✅ 修复：递增表单重置计数器，下次打开对话框时会使用新的key
+                    st.session_state.feedback_form_reset += 1
                     
                     # ✅ 直接返回，对话框自动关闭
                     return
@@ -152,17 +190,39 @@ def show_history_dialog():
     # 显示保留期说明
     st.info("ℹ️ **提示：** 转换完成的文件将保留 7 天，过期后会自动清理。请及时下载您需要的文件。")
     
-    # 从用户数据中获取转换历史
-    user_data = load_user_data(st.session_state.user_id)
-    if user_data is None:
-        st.warning("⚠️ 用户数据加载失败，请刷新页面重试")
-        return
-    conversion_history = user_data.get('conversion_history', [])
+    # ✅ 修复：优先从后端API获取转换历史（API模式）
+    conversion_history = []
+    from config import DATA_SOURCE, BACKEND_URL
+    
+    if DATA_SOURCE == 'api' and BACKEND_URL:
+        # API模式：通过后端API获取用户转换历史
+        try:
+            import requests
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/users/{st.session_state.user_id}"
+            response = requests.get(api_url, timeout=10)
+            if response.status_code == 200:
+                user_data_from_api = response.json()
+                conversion_history = user_data_from_api.get('conversion_history', [])
+                logger.info(f"✅ 从API获取转换历史: {len(conversion_history)}条记录")
+        except Exception as e:
+            logger.warning(f"⚠️ 从API获取转换历史失败: {e}，尝试从本地加载")
+    
+    # 降级方案：从本地数据加载
+    if not conversion_history:
+        user_data = load_user_data(st.session_state.user_id)
+        if user_data is None:
+            st.warning("⚠️ 用户数据加载失败，请刷新页面重试")
+            return
+        conversion_history = user_data.get('conversion_history', [])
     
     if conversion_history:
         # 准备表格数据（倒序显示，最新的在前面）
         table_data = []
         for record in reversed(conversion_history[-20:]):  # 显示最近20条
+            # ✅ 修复：将服务器时间转换为本地时间显示
+            server_time = record.get('time', '未知')
+            local_time = convert_server_time_to_local(server_time)
+            
             # 构建状态显示
             if record.get('failed', 0) == 0:
                 status = "✅ 成功"
@@ -173,7 +233,7 @@ def show_history_dialog():
             paragraphs_display = f"{record['paragraphs_charged']:,}" if record.get('paragraphs_charged') else "-"
             
             table_data.append({
-                '时间': record.get('time', '未知'),
+                '时间': local_time,
                 '文件数': record.get('files', 0),
                 '成功': record.get('success', 0),
                 '失败': record.get('failed', 0),
@@ -307,7 +367,29 @@ if 'has_seen_guide' not in st.session_state:
 COMMENTS_FILE = Path("comments_data.json")
 
 def load_comments():
-    """加载评论数据"""
+    """加载评论数据（优先从API获取）"""
+    # ✅ 修复：使用 API 加载评论（兼容多实例部署）
+    from config import BACKEND_URL
+    
+    if BACKEND_URL and DATA_SOURCE == 'api':
+        # API 模式：通过后端 API 获取
+        try:
+            import requests
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/comments/list?limit=100"
+            response = requests.get(api_url, timeout=10)
+            response.raise_for_status()
+            comments = response.json()
+            # 转换UUID为字符串，保持兼容性
+            for c in comments:
+                if isinstance(c.get('id'), str) and len(c['id']) > 20:
+                    # UUID格式，截取前8位作为显示ID
+                    c['display_id'] = c['id'][:8]
+            return comments
+        except Exception as e:
+            logger.error(f"❌ API加载评论失败: {e}，降级到本地文件")
+            # 降级到本地文件
+    
+    # 本地/Supabase 模式：使用本地文件（兜底逻辑）
     if COMMENTS_FILE.exists():
         with open(COMMENTS_FILE, 'r', encoding='utf-8') as f:
             try:
@@ -322,7 +404,41 @@ def save_comments(comments):
         json.dump(comments, f, ensure_ascii=False, indent=2)
 
 def add_comment(username, content, rating=5):
-    """添加新评论"""
+    """添加新评论（使用API提交到数据库）"""
+    # ✅ 修复：使用 API 提交评论（兼容多实例部署）
+    from config import BACKEND_URL
+    
+    if BACKEND_URL and DATA_SOURCE == 'api':
+        # API 模式：通过后端 API 提交
+        try:
+            import requests
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/comments/submit"
+            response = requests.post(
+                api_url,
+                json={
+                    'username': username or f'用户{st.session_state.user_id[:6]}',
+                    'content': content,
+                    'rating': rating,
+                    'user_id': st.session_state.user_id
+                },
+                timeout=10
+            )
+            response.raise_for_status()
+            result = response.json()
+            return {
+                'id': result.get('id'),
+                'username': result.get('username'),
+                'content': result.get('content'),
+                'rating': result.get('rating'),
+                'timestamp': result.get('timestamp'),
+                'likes': result.get('likes', 0),
+                'user_id': result.get('user_id')
+            }
+        except Exception as e:
+            logger.error(f"❌ API提交评论失败: {e}，降级到本地存储")
+            # 降级到本地存储
+    
+    # 本地/Supabase 模式：使用本地存储（兜底逻辑）
     comments = load_comments()
     
     new_comment = {
@@ -1447,6 +1563,16 @@ else:
                         user_data['conversion_history'] = []
                     
                     user_data['conversion_history'].append(conversion_record)
+                    
+                    # ✅ 修复：调用add_conversion_record写入conversion_tasks表（API模式）
+                    from data_manager import add_conversion_record
+                    add_conversion_record(
+                        files_count=len(current_source_files),
+                        success_count=success_count,
+                        failed_count=fail_count,
+                        user_id=st.session_state.user_id,
+                        paragraphs=total_success_paragraphs  # ✅ 新增：传递段落数
+                    )
                     
                     # 保存用户数据（使用统一数据接口）
                     from data_manager import save_user_data

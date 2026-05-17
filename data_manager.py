@@ -390,7 +390,7 @@ elif DATA_SOURCE == "supabase":
             finally:
                 db.close()
         
-        def _add_conversion_record(files_count, success_count, failed_count, user_id=None):
+        def _add_conversion_record(files_count, success_count, failed_count, user_id=None, paragraphs=0):
             """添加转换记录（Supabase 模式）"""
             # Supabase 模式下，转换记录通过 ConversionTask 表管理
             # 此函数主要用于兼容性，实际在任务完成时自动记录
@@ -530,6 +530,33 @@ elif DATA_SOURCE == "supabase":
                 db.rollback()
                 print(f"[WARN] 清理过期任务失败: {e}")
                 return 0
+            finally:
+                db.close()
+        
+        def _get_all_feedbacks_from_db():
+            """从数据库获取所有反馈（Supabase 模式）"""
+            from app.models import Feedback
+            
+            db = SessionLocal()
+            try:
+                feedbacks = db.query(Feedback).order_by(Feedback.created_at.desc()).all()
+                
+                return [
+                    {
+                        'id': str(fb.id),
+                        'user_id': fb.user_id,
+                        'feedback_type': fb.feedback_type,
+                        'title': fb.title,
+                        'description': fb.description,
+                        'contact': fb.contact,
+                        'status': fb.status,
+                        'created_at': fb.created_at.isoformat() if fb.created_at else '',
+                    }
+                    for fb in feedbacks
+                ]
+            except Exception as e:
+                print(f"[WARN] 获取反馈列表失败: {e}")
+                return []
             finally:
                 db.close()
         
@@ -740,9 +767,25 @@ elif DATA_SOURCE == "api":
                 return result.get('success', False)
             return False
         
-        def _add_conversion_record(files_count, success_count, failed_count, user_id=None):
-            """添加转换记录（API 模式）"""
-            pass
+        def _add_conversion_record(files_count, success_count, failed_count, user_id=None, paragraphs=0):
+            """添加转换记录（API 模式）- 写入conversion_tasks表"""
+            if not user_id:
+                return False
+            
+            # ✅ 修复：API模式下，通过后端admin API创建ConversionTask记录
+            task_data = {
+                'user_id': user_id,
+                'source_file': 'multiple_files',  # 多文件转换
+                'template_file': 'default_template',
+                'status': 'COMPLETED',
+                'progress': 100,
+                'paragraphs': paragraphs,  # ✅ 从参数获取段落数
+                'error_message': None
+            }
+            
+            # ✅ 修复：调用 /tasks 端点（_make_api_request会自动添加/api/admin前缀）
+            result = _make_api_request("/tasks", method="post", json=task_data)
+            return result.get('success', False)
         
         def _get_user_stats(user_id=None) -> Dict[str, Any]:
             """获取用户统计（API 模式）"""
@@ -785,10 +828,10 @@ elif DATA_SOURCE == "api":
                     'paragraphs_remaining': result.get('paragraphs_remaining', 0),
                     'total_paragraphs_used': result.get('total_paragraphs_used', 0),  # ✅ 修复：从后端返回中读取，而不是硬编码0
                     'total_converted': result.get('total_converted', 0),
+                    'conversion_history': result.get('conversion_history', []),  # ✅ 修复：从后端返回中读取转换历史
                     'is_active': True,
                     'created_at': '',
                     'last_login': '',
-                    'conversion_history': [],  # ✅ 添加转换历史字段
                 }
             else:
                 error_msg = result.get('message', '未知错误')
@@ -859,6 +902,11 @@ elif DATA_SOURCE == "api":
         def _cleanup_expired_tasks():
             """清理过期任务（API 模式）"""
             return 0
+        
+        def _get_all_feedbacks_from_db():
+            """从数据库获取所有反馈（API 模式 - 通过后端API）"""
+            result = _make_api_request("/feedback/list")
+            return result if isinstance(result, list) else []
 
 # ==================== 统一 API ====================
 
@@ -890,9 +938,9 @@ def deduct_paragraphs(paragraphs, user_id=None):
     """扣除段落"""
     return _deduct_paragraphs(paragraphs, user_id)
 
-def add_conversion_record(files_count, success_count, failed_count, user_id=None):
+def add_conversion_record(files_count, success_count, failed_count, user_id=None, paragraphs=0):
     """添加转换记录"""
-    return _add_conversion_record(files_count, success_count, failed_count, user_id)
+    return _add_conversion_record(files_count, success_count, failed_count, user_id, paragraphs)
 
 def get_user_stats(user_id=None):
     """获取用户统计"""
@@ -925,6 +973,10 @@ def get_all_tasks(status_filter=None, limit=100, offset=0):
 def get_task_stats():
     """获取任务统计"""
     return _get_task_stats()
+
+def get_all_feedbacks_from_db():
+    """从数据库获取所有反馈（统一数据源）"""
+    return _get_all_feedbacks_from_db()
 
 def get_user_active_task(user_id):
     """获取用户活动任务"""

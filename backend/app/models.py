@@ -39,13 +39,14 @@ class User(Base):
     __tablename__ = "users"
     
     id = Column(String(12), primary_key=True)  # 12位字符串用户ID
-    device_fingerprint = Column(String(64), index=True)  # 设备指纹（32位MD5哈希）
+    device_fingerprint = Column(String(32), unique=True, index=True)  # 设备指纹（32位MD5哈希）
     username = Column(String(50))  # 用户名
     style_mappings = Column(JSONB, default='{}')  # 样式映射配置
     balance = Column(Float, default=0.0)  # 账户余额
     paragraphs_remaining = Column(Integer, default=0)  # 剩余段落数
     total_paragraphs_used = Column(Integer, default=0)  # 累计使用段落数
     total_converted = Column(Integer, default=0)  # 累计转换文件数
+    conversion_history = Column(JSONB, default=list)  # 转换历史记录（JSON数组）
     is_active = Column(Boolean, default=True)  # 是否激活
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
     last_login = Column(DateTime(timezone=True))  # 最后登录时间
@@ -68,6 +69,7 @@ class ConversionTask(Base):
     converted_file = Column(String(500))  # 转换后文件路径
     status = Column(String(20), default='pending')  # 任务状态
     progress = Column(Integer, default=0)  # 进度（0-100）
+    paragraphs = Column(Integer, default=0)  # ✅ 新增：段落数
     error_message = Column(Text)  # 错误信息
     completed_at = Column(DateTime(timezone=True))  # 完成时间
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # 创建时间
