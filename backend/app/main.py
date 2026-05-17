@@ -5,7 +5,9 @@ FastAPI 主应用
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.api import auth, users, conversions, wechat_auth, admin, feedback, monitoring
+from app.api import admin, feedback, comments, monitoring, tasks  # ✅ 添加comments和tasks导入
+# 已移除的路由：auth, wechat_auth, conversions, users（这些功能未实现或与业务需求不符）
+# 注意：users.py依赖认证系统，暂不可用
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,15 +36,9 @@ def run_migrations():
             alembic_cfg.set_main_option('sqlalchemy.url', escaped_url)
             logger.info("✅ Alembic 使用环境变量 DATABASE_URL")
         
-        # 先尝试 stamp head 解决多 head 冲突
-        try:
-            logger.info("📝 标记当前 Alembic 版本...")
-            command.stamp(alembic_cfg, "head")
-            logger.info("✅ Stamp 成功")
-        except Exception as stamp_error:
-            logger.warning(f"⚠️ Stamp 失败（可能数据库为空）: {stamp_error}")
-        
-        # 执行数据库迁移
+        # ✅ 修复：直接执行 upgrade，不使用 stamp
+        # stamp 会将数据库标记为最新版本，导致 upgrade 跳过所有迁移
+        # 如果有多 head 冲突，Alembic 会抛出明确错误，需要手动解决
         logger.info("🔄 执行数据库迁移...")
         command.upgrade(alembic_cfg, "head")
         logger.info("✅ 数据库迁移完成")
@@ -73,12 +69,11 @@ def create_application() -> FastAPI:
     )
     
     # 注册路由
-    application.include_router(auth.router, prefix="/api/auth", tags=["认证"])
-    application.include_router(wechat_auth.router, prefix="/api/wechat", tags=["微信登录"])
-    application.include_router(users.router, prefix="/api/users", tags=["用户"])
-    application.include_router(conversions.router, prefix="/api/conversions", tags=["转换"])
+    # application.include_router(users.router, prefix="/api/users", tags=["用户"])  # 暂不可用 - 依赖认证系统
     application.include_router(admin.router, prefix="/api/admin", tags=["管理员"])
     application.include_router(feedback.router, prefix="/api/feedback", tags=["用户反馈"])
+    application.include_router(comments.router, prefix="/api/comments", tags=["评论"])  # ✅ 新增：评论API
+    application.include_router(tasks.router, prefix="/api/conversion-tasks", tags=["转换任务"])  # ✅ 新增：转换任务API
     application.include_router(monitoring.router, prefix="/monitoring", tags=["监控"])
     
     # 健康检查（同时支持 GET 和 POST，兼容 UptimeRobot 只能发送 POST 的限制）
