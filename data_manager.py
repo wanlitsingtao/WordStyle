@@ -5,6 +5,8 @@
 - local: 本地开发（SQLite + JSON）
 - supabase: 直接连接 Supabase（Render 等允许出站数据库连接的环境）
 - api: 通过后端 API 获取数据（Streamlit Cloud 等受限环境）
+
+[2026-05-18] 修复：确保 get_all_configs 和 update_config 函数可被正确导入
 """
 import os
 import sys
@@ -90,17 +92,25 @@ if DATA_SOURCE == "local":
             # 用户不存在，创建新用户
             user_id = hashlib.md5(f"wordstyle_device_{device_fingerprint}".encode()).hexdigest()[:12]
             
+            # [FIX] 从 config 表动态读取免费额度，不再使用硬编码
+            try:
+                config = get_config('free_paragraphs_daily')
+                initial_paragraphs = int(config) if config else 10000
+            except Exception as e:
+                logger.warning(f"读取免费额度配置失败，使用默认值10000: {e}")
+                initial_paragraphs = 10000
+            
             # 准备用户数据
             new_user_data = {
                 'user_id': user_id,
                 'balance': 0.0,
-                'paragraphs_remaining': FREE_PARAGRAPHS_DAILY,
+                'paragraphs_remaining': initial_paragraphs,
                 'total_paragraphs_used': 0,
                 'total_converted': 0,
                 'is_active': True,
                 'created_at': datetime.now().isoformat(),
                 'last_login': datetime.now().isoformat(),
-                'conversion_history': [],  # ✅ 添加转换历史字段
+                'conversion_history': [],  # [OK] 添加转换历史字段
             }
             
             # 保存用户数据
@@ -131,7 +141,7 @@ elif DATA_SOURCE == "supabase":
         def _load_user(user_id: str) -> Dict[str, Any]:
             """从 Supabase 加载用户数据
             
-            ✅ 防御性编程：失败时返回默认用户数据，而不是None
+            防御性编程：失败时返回默认用户数据，而不是None
             """
             db = SessionLocal()
             try:
@@ -146,11 +156,11 @@ elif DATA_SOURCE == "supabase":
                         'is_active': bool(user.is_active),
                         'created_at': user.created_at.isoformat() if user.created_at else '',
                         'last_login': user.last_login.isoformat() if user.last_login else '',
-                        'conversion_history': [],  # ✅ 添加默认值
-                        'style_mappings': {},  # ✅ 添加默认值
+                        'conversion_history': [],  # 添加默认值
+                        'style_mappings': {},  # 添加默认值
                     }
-                # ✅ 用户不存在时返回默认数据而不是None
-                logger.warning(f"️ 用户不存在: {user_id}，返回默认用户数据")
+                # 用户不存在时返回默认数据而不是None
+                logger.warning(f" 用户不存在: {user_id}，返回默认用户数据")
                 return {
                     'user_id': user_id,
                     'balance': 0.0,
@@ -164,7 +174,7 @@ elif DATA_SOURCE == "supabase":
                     'style_mappings': {},
                 }
             except Exception as e:
-                logger.error(f"️ Supabase加载用户数据异常: {e}，返回默认数据")
+                logger.error(f" Supabase加载用户数据异常: {e}，返回默认数据")
                 return {
                     'user_id': user_id,
                     'balance': 0.0,
@@ -266,12 +276,12 @@ elif DATA_SOURCE == "supabase":
                 
                 return [
                     {
-                        'task_id': t.task_id,
+                        'task_id': str(t.id),  # 使用id字段并转换为字符串
                         'user_id': t.user_id,
-                        'filename': t.filename,
-                        'file_count': t.file_count,
+                        'filename': t.source_file,  # 使用source_file字段
+                        'file_count': 1,  # 默认值
                         'paragraphs': t.paragraphs,
-                        'cost': float(t.cost or 0),
+                        'cost': float(t.cost if hasattr(t, 'cost') else 0),
                         'status': t.status,
                         'progress': t.progress,
                         'created_at': t.created_at.isoformat() if t.created_at else '',
@@ -565,7 +575,7 @@ elif DATA_SOURCE == "supabase":
     except ImportError as e:
         import traceback
         error_msg = f"Supabase 模式初始化失败: {e}"
-        print(f"️ {error_msg}")
+        print(f" {error_msg}")
         print(f"   详细错误: {traceback.format_exc()}")
         print("   回退到本地模式")
         DATA_SOURCE = "local"
@@ -585,7 +595,7 @@ elif DATA_SOURCE == "supabase":
     except Exception as e:
         import traceback
         error_msg = f"Supabase 模式初始化异常: {e}"
-        print(f"️ {error_msg}")
+        print(f"[ERROR] {error_msg}")
         print(f"   详细错误: {traceback.format_exc()}")
         print("   回退到本地模式")
         DATA_SOURCE = "local"
@@ -636,7 +646,7 @@ elif DATA_SOURCE == "api":
                 # /users/by-device → /api/admin/users/by-device
                 # /users/{id}/claim-free → /api/admin/users/{id}/claim-free
                 url = f"{BACKEND_URL}/api/admin{endpoint}"
-                logger.info(f"🌐 API请求: {method.upper()} {url}")
+                logger.info(f"[API] API请求: {method.upper()} {url}")
                 
                 if method.lower() == "get":
                     response = requests.get(url, params=params, timeout=10)
@@ -649,35 +659,35 @@ elif DATA_SOURCE == "api":
                         
                 response.raise_for_status()
                 result = response.json()
-                logger.info(f"✅ API响应成功: {endpoint}")
+                logger.info(f"[OK] API响应成功: {endpoint}")
                 return result
             except requests.exceptions.Timeout:
-                logger.error(f"⏰ API请求超时 (10秒): {method.upper()} {endpoint}")
+                logger.error(f"[TIME] API请求超时 (10秒): {method.upper()} {endpoint}")
                 return {}
             except requests.exceptions.ConnectionError as e:
-                logger.error(f"❌ API连接失败: {method.upper()} {endpoint} - {e}")
+                logger.error(f"[ERROR] API连接失败: {method.upper()} {endpoint} - {e}")
                 return {}
             except requests.exceptions.HTTPError as e:
-                logger.error(f"❌ API HTTP错误: {method.upper()} {endpoint} - {e.response.status_code} - {e.response.text}")
+                logger.error(f"[ERROR] API HTTP错误: {method.upper()} {endpoint} - {e.response.status_code} - {e.response.text}")
                 return {}
             except Exception as e:
-                logger.error(f"❌ API请求异常: {method.upper()} {endpoint} - {type(e).__name__}: {e}")
+                logger.error(f"[ERROR] API请求异常: {method.upper()} {endpoint} - {type(e).__name__}: {e}")
                 return {}
         
         def _load_user(user_id: str) -> Dict[str, Any]:
             """
             从 API 加载用户数据
             
-            ⚠️ 安全修复：不再使用user_id作为查询参数，改用device_fingerprint
+            ⚠ 安全修复：不再使用user_id作为查询参数，改用device_fingerprint
             防止用户通过修改URL参数获取其他用户数据
             
-            ✅ 防御性编程：失败时返回默认用户数据，而不是None
+            [OK] 防御性编程：失败时返回默认用户数据，而不是None
             """
-            # 🔧 从session_state获取device_fingerprint（需要在调用前设置）
+            # [TOOL] 从session_state获取device_fingerprint（需要在调用前设置）
             import streamlit as st
             device_fingerprint = st.session_state.get('device_fingerprint', '')
             
-            # ✅ 默认用户数据（用于降级）
+            # [OK] 默认用户数据（用于降级）
             default_user_data = {
                 'user_id': user_id or 'unknown',
                 'balance': 0.0,
@@ -692,7 +702,7 @@ elif DATA_SOURCE == "api":
             }
             
             if not device_fingerprint:
-                logger.warning("⚠️ API模式缺少device_fingerprint，返回默认用户数据")
+                logger.warning("⚠ API模式缺少device_fingerprint，返回默认用户数据")
                 return default_user_data
             
             # 调用 /users/by-device 接口，通过设备指纹获取用户
@@ -703,7 +713,7 @@ elif DATA_SOURCE == "api":
             )
             
             if result.get('success'):
-                # ✅ 修复：后端返回的是扁平结构，不是嵌套的'user'字段
+                # [OK] 修复：后端返回的是扁平结构，不是嵌套的'user'字段
                 # 需要正确解析后端返回的用户数据
                 if 'user' in result:
                     # 如果后端返回嵌套结构，直接使用
@@ -723,8 +733,8 @@ elif DATA_SOURCE == "api":
                         'style_mappings': {},
                     }
             
-            # ✅ API请求失败时返回默认用户数据
-            logger.warning(f"⚠️ API请求失败，返回默认用户数据: {user_id}")
+            # [OK] API请求失败时返回默认用户数据
+            logger.warning(f"⚠ API请求失败，返回默认用户数据: {user_id}")
             return default_user_data
         
         def _save_user(user_data: Dict[str, Any], user_id: str = None):
@@ -745,15 +755,15 @@ elif DATA_SOURCE == "api":
         def _claim_free(user_id=None):
             """领取免费段落（API 模式）"""
             if user_id:
-                logger.info(f"🌐 API请求: POST /users/{user_id}/claim-free")
+                logger.info(f"[API] API请求: POST /users/{user_id}/claim-free")
                 result = _make_api_request(f"/users/{user_id}/claim-free", method="post")
-                logger.info(f"🔍 API响应: {result}")
+                logger.info(f"[SEARCH] API响应: {result}")
                 if result.get('success'):
                     paragraphs = result.get('paragraphs', 0)
-                    logger.info(f"✅ 领取成功: {paragraphs} 段落")
+                    logger.info(f"[OK] 领取成功: {paragraphs} 段落")
                     return paragraphs
                 else:
-                    logger.warning(f"⚠️ 领取失败: {result.get('error', '未知错误')}")
+                    logger.warning(f"⚠ 领取失败: {result.get('error', '未知错误')}")
             return 0
         
         def _recharge_user(amount, package_label, user_id=None):
@@ -772,18 +782,18 @@ elif DATA_SOURCE == "api":
             if not user_id:
                 return False
             
-            # ✅ 修复：API模式下，通过后端admin API创建ConversionTask记录
+            # [OK] 修复：API模式下，通过后端admin API创建ConversionTask记录
             task_data = {
                 'user_id': user_id,
                 'source_file': 'multiple_files',  # 多文件转换
                 'template_file': 'default_template',
                 'status': 'COMPLETED',
                 'progress': 100,
-                'paragraphs': paragraphs,  # ✅ 从参数获取段落数
+                'paragraphs': paragraphs,  # [OK] 从参数获取段落数
                 'error_message': None
             }
             
-            # ✅ 修复：调用 /tasks 端点（_make_api_request会自动添加/api/admin前缀）
+            # [OK] 修复：调用 /tasks 端点（_make_api_request会自动添加/api/admin前缀）
             result = _make_api_request("/tasks", method="post", json=task_data)
             return result.get('success', False)
         
@@ -816,9 +826,9 @@ elif DATA_SOURCE == "api":
                 }
             )
             
-            # 🔧 检查API请求是否成功
+            # [TOOL] 检查API请求是否成功
             if not result:
-                logger.error(f"❌ API返回空结果，可能是后端服务不可用或网络超时")
+                logger.error(f"[ERROR] API返回空结果，可能是后端服务不可用或网络超时")
                 raise Exception("API请求失败：后端服务不可用或网络超时")
             
             if result.get('success'):
@@ -826,16 +836,16 @@ elif DATA_SOURCE == "api":
                     'user_id': result['user_id'],
                     'balance': result.get('balance', 0.0),
                     'paragraphs_remaining': result.get('paragraphs_remaining', 0),
-                    'total_paragraphs_used': result.get('total_paragraphs_used', 0),  # ✅ 修复：从后端返回中读取，而不是硬编码0
+                    'total_paragraphs_used': result.get('total_paragraphs_used', 0),  # [OK] 修复：从后端返回中读取，而不是硬编码0
                     'total_converted': result.get('total_converted', 0),
-                    'conversion_history': result.get('conversion_history', []),  # ✅ 修复：从后端返回中读取转换历史
+                    'conversion_history': result.get('conversion_history', []),  # [OK] 修复：从后端返回中读取转换历史
                     'is_active': True,
                     'created_at': '',
                     'last_login': '',
                 }
             else:
                 error_msg = result.get('message', '未知错误')
-                logger.error(f"❌ API返回失败: {error_msg}")
+                logger.error(f"[ERROR] API返回失败: {error_msg}")
                 raise Exception(f"API返回失败: {error_msg}")
         
         def _create_task(task_id, user_id, filename, file_count=1, paragraphs=0, cost=0.0):
@@ -1039,7 +1049,7 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
                     'is_active': bool(user.is_active),
                     'created_at': user.created_at.isoformat() if user.created_at else '',
                     'last_login': user.last_login.isoformat() if user.last_login else '',
-                    'conversion_history': [],  # ✅ 添加转换历史字段
+                    'conversion_history': [],  # [OK] 添加转换历史字段
                 }
                 
                 return user_data
@@ -1071,7 +1081,7 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
                 'is_active': True,
                 'created_at': datetime.now().isoformat(),
                 'last_login': datetime.now().isoformat(),
-                'conversion_history': [],  # ✅ 添加转换历史字段
+                'conversion_history': [],  # [OK] 添加转换历史字段
             }
         finally:
             db.close()
@@ -1095,3 +1105,462 @@ def generate_device_fingerprint(user_agent: str) -> str:
     """
     import hashlib
     return hashlib.md5(user_agent.encode('utf-8')).hexdigest()[:32]
+
+
+# ==================== 文件管理 API ====================
+
+def get_file_list(page: int = 1, page_size: int = 50) -> Dict:
+    """
+    获取文件列表（支持分页）
+    
+    Args:
+        page: 页码（从1开始）
+        page_size: 每页数量
+    
+    Returns:
+        包含文件列表和分页信息的字典
+    """
+    if DATA_SOURCE == "api":
+        try:
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/files?page={page}&page_size={page_size}"
+            response = requests.get(api_url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"[ERROR] API获取文件列表失败: {e}")
+            return {'files': [], 'pagination': {'total_count': 0}}
+    elif DATA_SOURCE == "local":
+        # Local模式使用file_manager
+        from file_manager import get_file_manager
+        fm = get_file_manager()
+        return fm.get_file_list(page=page, page_size=page_size)
+    else:
+        raise ValueError(f"未知的数据源模式: {DATA_SOURCE}")
+
+
+def delete_files(file_ids: List[str]) -> Dict[str, int]:
+    """
+    删除指定的文件
+    
+    Args:
+        file_ids: 文件ID列表
+    
+    Returns:
+        删除统计信息
+    """
+    if DATA_SOURCE == "api":
+        try:
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/files/delete"
+            response = requests.post(api_url, json={'file_ids': file_ids}, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"[ERROR] API删除文件失败: {e}")
+            return {'success': 0, 'failed': len(file_ids), 'errors': [str(e)]}
+    elif DATA_SOURCE == "local":
+        # Local模式使用file_manager
+        from file_manager import get_file_manager
+        fm = get_file_manager()
+        return fm.delete_files(file_ids)
+    else:
+        raise ValueError(f"未知的数据源模式: {DATA_SOURCE}")
+
+
+def get_storage_stats() -> Dict:
+    """
+    获取存储空间统计信息
+    
+    Returns:
+        存储统计信息
+    """
+    if DATA_SOURCE == "api":
+        try:
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/files/stats"
+            response = requests.get(api_url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"[ERROR] API获取存储统计失败: {e}")
+            return {}
+    elif DATA_SOURCE == "local":
+        # Local模式使用file_manager
+        from file_manager import get_file_manager
+        fm = get_file_manager()
+        return fm.get_storage_stats()
+    else:
+        raise ValueError(f"未知的数据源模式: {DATA_SOURCE}")
+
+# ==================== 系统配置管理 API ====================
+
+def get_all_configs() -> Dict:
+    """
+    获取所有系统配置
+    
+    Returns:
+        配置列表
+    """
+    if DATA_SOURCE == "api":
+        try:
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/configs"
+            response = requests.get(api_url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"API获取配置列表失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {"success": False, "data": []}
+    elif DATA_SOURCE == "supabase":
+        # Supabase模式直接使用SQLAlchemy连接PostgreSQL
+        try:
+            from sqlalchemy import create_engine, text
+            
+            # 将连接池器URL转换为直连URL（端口5432）
+            direct_url = DATABASE_URL.replace(':6543/', ':5432/').replace('/postgres?', '/postgres?')
+            if ':6543' not in direct_url and ':5432' not in direct_url:
+                # 如果已经是直连URL，直接使用
+                direct_url = DATABASE_URL
+            
+            engine = create_engine(direct_url)
+            with engine.connect() as conn:
+                result = conn.execute(text("SELECT config_key, config_value, description, updated_at FROM system_config ORDER BY config_key"))
+                rows = result.fetchall()
+            
+            configs = [
+                {
+                    "config_key": row[0],
+                    "config_value": row[1],
+                    "description": row[2],
+                    "updated_at": row[3].isoformat() if row[3] else None
+                }
+                for row in rows
+            ]
+            
+            return {"success": True, "data": configs}
+        except Exception as e:
+            logger.error(f"[ERROR] Supabase获取配置列表失败: {e}")
+            return {"success": False, "data": []}
+    else:
+        # Local模式使用SQLite
+        try:
+            import sqlite3
+            from pathlib import Path
+            db_file = Path(__file__).parent / "conversion_tasks.db"
+            
+            if not db_file.exists():
+                return {"success": False, "data": [], "message": "数据库文件不存在"}
+            
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            
+            # 检查表是否存在
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='system_config'")
+            if not cursor.fetchone():
+                conn.close()
+                return {"success": False, "data": [], "message": "system_config表不存在"}
+            
+            cursor.execute("SELECT config_key, config_value, description, updated_at FROM system_config ORDER BY config_key")
+            rows = cursor.fetchall()
+            conn.close()
+            
+            configs = [
+                {
+                    "config_key": row[0],
+                    "config_value": row[1],
+                    "description": row[2],
+                    "updated_at": row[3]
+                }
+                for row in rows
+            ]
+            
+            return {"success": True, "data": configs}
+        except Exception as e:
+            logger.error(f"[ERROR] SQLite获取配置列表失败: {e}")
+            return {"success": False, "data": []}
+
+def get_config(key: str) -> Optional[str]:
+    """
+    获取单个配置项的值
+    
+    Args:
+        key: 配置键
+        
+    Returns:
+        配置值，不存在则返回None
+    """
+    if DATA_SOURCE == "api":
+        try:
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/config/{key}"
+            response = requests.get(api_url, timeout=10)
+            if response.status_code == 404:
+                return None
+            response.raise_for_status()
+            data = response.json()
+            return data.get('data', {}).get('config_value')
+        except Exception as e:
+            logger.error(f"[ERROR] API获取配置失败: {e}")
+            return None
+    elif DATA_SOURCE == "supabase":
+        try:
+            from sqlalchemy import create_engine, text
+            
+            # 将连接池器URL转换为直连URL（端口5432）
+            direct_url = DATABASE_URL.replace(':6543/', ':5432/').replace('/postgres?', '/postgres?')
+            if ':6543' not in direct_url and ':5432' not in direct_url:
+                direct_url = DATABASE_URL
+            
+            engine = create_engine(direct_url)
+            with engine.connect() as conn:
+                result = conn.execute(
+                    text("SELECT config_value FROM system_config WHERE config_key = :key"),
+                    {"key": key}
+                )
+                row = result.fetchone()
+            
+            if row:
+                return row[0]
+            return None
+        except Exception as e:
+            logger.error(f"[ERROR] Supabase获取配置失败: {e}")
+            return None
+    else:
+        # Local模式使用SQLite
+        try:
+            import sqlite3
+            from pathlib import Path
+            db_file = Path(__file__).parent / "conversion_tasks.db"
+            
+            if not db_file.exists():
+                return None
+            
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT config_value FROM system_config WHERE config_key = ?", (key,))
+            row = cursor.fetchone()
+            conn.close()
+            
+            if row:
+                return row[0]
+            return None
+        except Exception as e:
+            logger.error(f"[ERROR] SQLite获取配置失败: {e}")
+            return None
+
+def update_config(key: str, value: str, description: str = None) -> Dict:
+    """
+    更新配置项
+    
+    Args:
+        key: 配置键
+        value: 配置值
+        description: 配置描述（可选）
+        
+    Returns:
+        更新结果
+    """
+    if DATA_SOURCE == "api":
+        try:
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/config/{key}"
+            payload = {
+                "config_value": value,
+                "description": description
+            }
+            response = requests.put(api_url, json=payload, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"[ERROR] API更新配置失败: {e}")
+            return {"success": False, "message": str(e)}
+    elif DATA_SOURCE == "supabase":
+        # Supabase模式直接使用SQLAlchemy连接PostgreSQL
+        try:
+            from sqlalchemy import create_engine, text
+            
+            # 将连接池器URL转换为直连URL（端口5432）
+            direct_url = DATABASE_URL.replace(':6543/', ':5432/').replace('/postgres?', '/postgres?')
+            if ':6543' not in direct_url and ':5432' not in direct_url:
+                direct_url = DATABASE_URL
+            
+            engine = create_engine(direct_url)
+            with engine.connect() as conn:
+                # 检查是否存在
+                result = conn.execute(text("SELECT id FROM system_config WHERE config_key = :key"), {"key": key})
+                existing = result.fetchone()
+                
+                if existing:
+                    # 更新现有记录
+                    if description:
+                        conn.execute(
+                            text("UPDATE system_config SET config_value = :value, description = :desc, updated_at = CURRENT_TIMESTAMP WHERE config_key = :key"),
+                            {"value": value, "desc": description, "key": key}
+                        )
+                    else:
+                        conn.execute(
+                            text("UPDATE system_config SET config_value = :value, updated_at = CURRENT_TIMESTAMP WHERE config_key = :key"),
+                            {"value": value, "key": key}
+                        )
+                else:
+                    # 插入新记录
+                    desc = description or ""
+                    conn.execute(
+                        text("INSERT INTO system_config (config_key, config_value, description) VALUES (:key, :value, :desc)"),
+                        {"key": key, "value": value, "desc": desc}
+                    )
+                
+                conn.commit()
+            
+            return {"success": True, "message": f"配置 '{key}' 更新成功"}
+        except Exception as e:
+            logger.error(f"[ERROR] Supabase更新配置失败: {e}")
+            return {"success": False, "message": str(e)}
+    else:
+        # Local模式使用SQLite
+        try:
+            import sqlite3
+            from pathlib import Path
+            db_file = Path(__file__).parent / "conversion_tasks.db"
+            
+            if not db_file.exists():
+                return {"success": False, "message": "数据库文件不存在"}
+            
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            
+            # 检查记录是否存在
+            cursor.execute("SELECT id FROM system_config WHERE config_key = ?", (key,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # 更新现有记录
+                if description:
+                    cursor.execute(
+                        "UPDATE system_config SET config_value = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE config_key = ?",
+                        (value, description, key)
+                    )
+                else:
+                    cursor.execute(
+                        "UPDATE system_config SET config_value = ?, updated_at = CURRENT_TIMESTAMP WHERE config_key = ?",
+                        (value, key)
+                    )
+            else:
+                # 插入新记录
+                desc = description or ""
+                cursor.execute(
+                    "INSERT INTO system_config (config_key, config_value, description) VALUES (?, ?, ?)",
+                    (key, value, desc)
+                )
+            
+            conn.commit()
+            conn.close()
+            
+            return {"success": True, "message": "配置已更新"}
+        except Exception as e:
+            logger.error(f"[ERROR] SQLite更新配置失败: {e}")
+            return {"success": False, "message": str(e)}
+
+def batch_update_configs(configs: dict) -> Dict:
+    """
+    批量更新配置
+    
+    Args:
+        configs: 配置字典 {key: value}
+        
+    Returns:
+        更新结果
+    """
+    if DATA_SOURCE == "api":
+        try:
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/configs/batch"
+            payload = {"configs": configs}
+            response = requests.post(api_url, json=payload, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"[ERROR] API批量更新配置失败: {e}")
+            return {"success": False, "message": str(e)}
+    elif DATA_SOURCE == "supabase":
+        # 逐个更新
+        results = []
+        for key, value in configs.items():
+            result = update_config(key, str(value))
+            results.append({"key": key, "success": result.get("success", False)})
+        
+        success_count = sum(1 for r in results if r["success"])
+        return {
+            "success": True,
+            "message": f"成功更新 {success_count} 个配置",
+            "updated_count": success_count,
+            "results": results
+        }
+    else:
+        return {"success": False, "message": "Local模式不支持配置管理"}
+
+def init_default_configs() -> Dict:
+    """
+    初始化默认配置
+    
+    Returns:
+        初始化结果
+    """
+    if DATA_SOURCE == "api":
+        try:
+            api_url = f"{BACKEND_URL.rstrip('/')}/api/admin/config/init-defaults"
+            response = requests.post(api_url, timeout=10)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"[ERROR] API初始化默认配置失败: {e}")
+            return {"success": False, "message": str(e)}
+    elif DATA_SOURCE == "supabase":
+        try:
+            from sqlalchemy import create_engine, text
+            
+            # 将连接池器URL转换为直连URL（端口5432）
+            direct_url = DATABASE_URL.replace(':6543/', ':5432/').replace('/postgres?', '/postgres?')
+            if ':6543' not in direct_url and ':5432' not in direct_url:
+                direct_url = DATABASE_URL
+            
+            engine = create_engine(direct_url)
+            
+            default_configs = [
+                {"config_key": "paragraph_price", "config_value": "0.001", "description": "每个段落的价格（元）"},
+                {"config_key": "min_recharge", "config_value": "1.0", "description": "最低充值金额（元）"},
+                {"config_key": "free_paragraphs_daily", "config_value": "10000", "description": "每日免费段落数"},
+                {"config_key": "admin_contact", "config_value": "微信号：your_wechat_id", "description": "管理员联系方式"},
+                {"config_key": "max_file_size_mb", "config_value": "50", "description": "最大文件大小（MB）"},
+                {"config_key": "task_expiry_days", "config_value": "7", "description": "转换任务保留天数"},
+            ]
+            
+            created_count = 0
+            with engine.connect() as conn:
+                for config_data in default_configs:
+                    result = conn.execute(
+                        text("SELECT id FROM system_config WHERE config_key = :key"),
+                        {"key": config_data['config_key']}
+                    )
+                    existing = result.fetchone()
+                    
+                    if not existing:
+                        conn.execute(
+                            text("INSERT INTO system_config (config_key, config_value, description) VALUES (:key, :value, :desc)"),
+                            {
+                                "key": config_data['config_key'],
+                                "value": config_data['config_value'],
+                                "desc": config_data['description']
+                            }
+                        )
+                        created_count += 1
+                
+                conn.commit()
+            
+            return {
+                "success": True,
+                "message": f"成功初始化 {created_count} 个默认配置",
+                "created_count": created_count
+            }
+        except Exception as e:
+            logger.error(f"[ERROR] Supabase初始化默认配置失败: {e}")
+            return {"success": False, "message": str(e)}
+    else:
+        return {"success": False, "message": "Local模式不支持配置管理"}

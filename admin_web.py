@@ -18,9 +18,12 @@ from data_manager import (
     get_task_stats,
     load_all_users_data,
     get_data_source,
-    DATA_SOURCE as ACTUAL_DATA_SOURCE
+    DATA_SOURCE as ACTUAL_DATA_SOURCE,
+    get_file_list,
+    delete_files,
+    get_storage_stats
 )
-from comments_manager import delete_comment  # ✅ 修复：只保留delete_comment，其他改用API
+from comments_manager import delete_comment  # 修复：只保留delete_comment，其他改用API
 from config import DATA_SOURCE as CONFIG_DATA_SOURCE, DATABASE_URL
 
 # 在页面顶部显示数据源配置信息（用于调试）
@@ -336,7 +339,7 @@ def show_user_management():
 
 def show_task_management():
     """显示转换任务管理"""
-    st.title("📝 转换任务管理")
+    st.title("📋 转换任务管理")
     st.markdown("---")
     
     try:
@@ -383,7 +386,7 @@ def show_task_management():
                     'FAILED': '❌'
                 }.get(task.get('status', ''), '❓')
                 
-                # ✅ 修复：适配ConversionTask模型的实际字段
+                # [OK] 修复：适配ConversionTask模型的实际字段
                 # 从source_file提取文件名
                 source_file = task.get('source_file', '') or ''
                 filename = source_file.split('/')[-1].split('\\')[-1] if source_file else '-'
@@ -410,7 +413,7 @@ def show_task_management():
                 # 使用统一数据访问层
                 from data_manager import update_task_status
                 
-                # ✅ 修复：查找任务时使用id字段而不是task_id
+                # [OK] 修复：查找任务时使用id字段而不是task_id
                 task_found = any(str(t.get('id', '')) == selected_task_id for t in all_tasks)
                 
                 if task_found:
@@ -457,7 +460,7 @@ def show_feedback_management():
     st.markdown("---")
     
     try:
-        # ✅ 修复：使用 API 获取反馈统计（兼容多实例部署）
+        # [OK] 修复：使用 API 获取反馈统计（兼容多实例部署）
         import requests
         from config import BACKEND_URL
         
@@ -479,15 +482,15 @@ def show_feedback_management():
         # 显示统计信息
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("📝 总反馈数", stats.get('total', 0))
+            st.metric("ℹ️ 总反馈数", stats.get('total', 0))
         with col2:
-            st.metric("⏳ 待处理", stats.get('by_status', {}).get('pending', 0))  # ✅ 修复：使用正确的统计字段
+            st.metric("⏳ 待处理", stats.get('by_status', {}).get('pending', 0))  # [OK] 修复：使用正确的统计字段
         with col3:
-            st.metric("✅ 已处理", stats.get('by_status', {}).get('resolved', 0))  # ✅ 修复：使用resolved而非processed
+            st.metric("✅ 已处理", stats.get('by_status', {}).get('resolved', 0))  # 修复：使用resolved而非processed
         
         st.markdown("---")
         
-        # ✅ 修复：统一数据源 - 始终从Supabase数据库读取反馈
+        # [OK] 修复：统一数据源 - 始终从Supabase数据库读取反馈
         # 不再使用本地JSON文件，确保与管理页面数据一致
         all_feedbacks = []
         
@@ -511,7 +514,7 @@ def show_feedback_management():
                 all_feedbacks = []
         
         if all_feedbacks:
-            # ✅ 新增：分页功能
+            # [OK] 新增：分页功能
             PAGE_SIZE = 10  # 每页显示10条
             total_pages = (len(all_feedbacks) + PAGE_SIZE - 1) // PAGE_SIZE
             
@@ -538,7 +541,7 @@ def show_feedback_management():
             # 显示反馈列表（仅当前页）
             feedback_data = []
             for fb in page_feedbacks:
-                # ✅ 修复：兼容多种字段名（API返回、数据库直接读取、本地存储）
+                # [OK] 修复：兼容多种字段名（API返回、数据库直接读取、本地存储）
                 # ID字段：优先使用id，其次feedback_id
                 fb_id_raw = fb.get('id') or fb.get('feedback_id') or ''
                 fb_id = str(fb_id_raw)
@@ -595,20 +598,20 @@ def show_feedback_management():
                     # 显示完整内容
                     with st.expander("查看完整反馈内容", expanded=True):
                         st.write(f"**用户ID:** {feedback_found.get('user_id', '-')}")
-                        st.write(f"**类型:** {feedback_found.get('feedback_type', '-')}")  # ✅ 修复：使用正确的字段名
-                        st.write(f"**标题:** {feedback_found.get('title', '-')}")  # ✅ 修复：使用title
-                        st.write(f"**描述:** {feedback_found.get('description', '-')}")  # ✅ 修复：使用description
+                        st.write(f"**类型:** {feedback_found.get('feedback_type', '-')}")  # [OK] 修复：使用正确的字段名
+                        st.write(f"**标题:** {feedback_found.get('title', '-')}")  # [OK] 修复：使用title
+                        st.write(f"**描述:** {feedback_found.get('description', '-')}")  # [OK] 修复：使用description
                         st.write(f"**联系方式:** {feedback_found.get('contact', '-')}")
-                        st.write(f"**提交时间:** {feedback_found.get('created_at', feedback_found.get('timestamp', ''))}")  # ✅ 修复：优先使用created_at
+                        st.write(f"**提交时间:** {feedback_found.get('created_at', feedback_found.get('timestamp', ''))}")  # [OK] 修复：优先使用created_at
                         status_text = "✅ 已处理" if feedback_found.get('status') == 'resolved' else ("🔄 处理中" if feedback_found.get('status') == 'processing' else "⏳ 待处理")
-                        st.write(f"**状态:** {status_text}")  # ✅ 修复：使用status字段
+                        st.write(f"**状态:** {status_text}")  # [OK] 修复：使用status字段
                     
                     col1, col2 = st.columns(2)
                     
                     with col1:
-                        if feedback_found.get('status') != 'resolved':  # ✅ 修复：使用status字段
+                        if feedback_found.get('status') != 'resolved':  # [OK] 修复：使用status字段
                             if st.button("标记为已处理", key=f"process_{selected_feedback_id}"):
-                                # ✅ 修复：使用 API 更新状态
+                                # [OK] 修复：使用 API 更新状态
                                 import requests
                                 from config import BACKEND_URL
                                 
@@ -656,12 +659,488 @@ def show_feedback_management():
 # ==================== 系统配置 ====================
 
 def show_system_config():
-    """显示系统配置（暂未实现）"""
+    """显示系统配置管理页面（可编辑）"""
     st.title("⚙️ 系统配置")
     st.markdown("---")
     
-    st.info("ℹ️ 系统配置功能暂未实现。当前版本使用config.py配置文件。")
-    st.warning("如需动态配置管理，请切换到云端Supabase模式。")
+    # 初始化session_state
+    if 'config_refresh' not in st.session_state:
+        st.session_state.config_refresh = 0
+    
+    # 顶部操作按钮
+    col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 3])
+    
+    with col_btn1:
+        if st.button("🔄 刷新配置", use_container_width=True):
+            st.session_state.config_refresh += 1
+            st.rerun()
+    
+    with col_btn2:
+        if st.button("📥 初始化默认配置", use_container_width=True, type="secondary"):
+            from data_manager import init_default_configs
+            result = init_default_configs()
+            if result.get('success'):
+                st.success(f"✅ {result.get('message', '初始化成功')}")
+                st.session_state.config_refresh += 1
+                st.rerun()
+            else:
+                st.error(f"❌ {result.get('message', '初始化失败')}")
+    
+    st.markdown("---")
+    
+    # 获取所有配置
+    try:
+        from data_manager import get_all_configs, update_config
+        
+        configs_response = get_all_configs()
+        
+        if not configs_response.get('success'):
+            st.warning("⚠️ 无法加载配置数据")
+            st.info("💡 提示：请确保后端服务正常运行，或切换到Supabase模式")
+            return
+        
+        configs_data = configs_response.get('data', [])
+        
+        # 将配置列表转换为字典
+        configs_dict = {}
+        for config in configs_data:
+            configs_dict[config['config_key']] = config
+        
+        if not configs_dict:
+            st.info("📭 暂无配置项，点击“初始化默认配置”按钮创建默认配置")
+            return
+        
+        # ==================== 计费配置 ====================
+        with st.expander("💰 计费配置", expanded=True):
+            st.markdown("**段落单价和充值相关配置**")
+            
+            # 段落单价
+            paragraph_price_config = configs_dict.get('paragraph_price', {})
+            paragraph_price = st.number_input(
+                "段落单价（元/段）",
+                value=float(paragraph_price_config.get('config_value', '0.001')),
+                min_value=0.0001,
+                step=0.0001,
+                format="%.4f",
+                key="input_paragraph_price"
+            )
+            
+            # 最低充值
+            min_recharge_config = configs_dict.get('min_recharge', {})
+            min_recharge = st.number_input(
+                "最低充值金额（元）",
+                value=float(min_recharge_config.get('config_value', '1.0')),
+                min_value=0.1,
+                step=0.1,
+                format="%.1f",
+                key="input_min_recharge"
+            )
+            
+            col_save1, col_info1 = st.columns([1, 4])
+            with col_save1:
+                if st.button("💾 保存计费配置", key="save_billing", use_container_width=True):
+                    try:
+                        result1 = update_config('paragraph_price', str(paragraph_price))
+                        result2 = update_config('min_recharge', str(min_recharge))
+                        
+                        if result1.get('success') and result2.get('success'):
+                            st.success("✅ 计费配置已保存")
+                            st.session_state.config_refresh += 1
+                            st.rerun()
+                        else:
+                            st.error("❌ 保存失败")
+                    except Exception as e:
+                        st.error(f"❌ 保存失败: {str(e)}")
+            
+            with col_info1:
+                st.caption(f"最后更新: {paragraph_price_config.get('updated_at', 'N/A')}")
+        
+        # ==================== 免费额度 ====================
+        with st.expander("🎁 免费额度配置", expanded=True):
+            st.markdown("**用户每日免费转换段落数**")
+            
+            free_paragraphs_config = configs_dict.get('free_paragraphs_daily', {})
+            free_paragraphs = st.number_input(
+                "每日免费段落数",
+                value=int(free_paragraphs_config.get('config_value', '10000')),
+                min_value=0,
+                step=100,
+                key="input_free_paragraphs"
+            )
+            
+            col_save2, col_info2 = st.columns([1, 4])
+            with col_save2:
+                if st.button("💾 保存免费额度", key="save_free", use_container_width=True):
+                    try:
+                        result = update_config('free_paragraphs_daily', str(free_paragraphs))
+                        if result.get('success'):
+                            st.success("✅ 免费额度已保存")
+                            st.session_state.config_refresh += 1
+                            st.rerun()
+                        else:
+                            st.error("❌ 保存失败")
+                    except Exception as e:
+                        st.error(f"❌ 保存失败: {str(e)}")
+            
+            with col_info2:
+                st.caption(f"最后更新: {free_paragraphs_config.get('updated_at', 'N/A')}")
+        
+        # ==================== 管理员联系 ====================
+        with st.expander("👤 管理员联系方式", expanded=True):
+            st.markdown("**用户反馈时显示的联系方式**")
+            
+            admin_contact_config = configs_dict.get('admin_contact', {})
+            admin_contact = st.text_area(
+                "联系方式",
+                value=admin_contact_config.get('config_value', '微信号：your_wechat_id'),
+                height=100,
+                max_chars=500,
+                key="input_admin_contact"
+            )
+            
+            col_save3, col_info3 = st.columns([1, 4])
+            with col_save3:
+                if st.button("💾 保存联系方式", key="save_contact", use_container_width=True):
+                    try:
+                        result = update_config('admin_contact', admin_contact)
+                        if result.get('success'):
+                            st.success("✅ 联系方式已保存")
+                            st.session_state.config_refresh += 1
+                            st.rerun()
+                        else:
+                            st.error("❌ 保存失败")
+                    except Exception as e:
+                        st.error(f"❌ 保存失败: {str(e)}")
+            
+            with col_info3:
+                st.caption(f"最后更新: {admin_contact_config.get('updated_at', 'N/A')}")
+        
+        # ==================== 文件配置 ====================
+        with st.expander("📄 文件限制配置", expanded=False):
+            st.markdown("**上传文件的大小和类型限制**")
+            
+            max_file_size_config = configs_dict.get('max_file_size_mb', {})
+            max_file_size = st.number_input(
+                "最大文件大小（MB）",
+                value=int(max_file_size_config.get('config_value', '50')),
+                min_value=1,
+                max_value=500,
+                step=1,
+                key="input_max_file_size"
+            )
+            
+            col_save4, col_info4 = st.columns([1, 4])
+            with col_save4:
+                if st.button("💾 保存文件配置", key="save_file", use_container_width=True):
+                    try:
+                        result = update_config('max_file_size_mb', str(max_file_size))
+                        if result.get('success'):
+                            st.success("✅ 文件配置已保存")
+                            st.session_state.config_refresh += 1
+                            st.rerun()
+                        else:
+                            st.error("❌ 保存失败")
+                    except Exception as e:
+                        st.error(f"❌ 保存失败: {str(e)}")
+            
+            with col_info4:
+                st.caption(f"最后更新: {max_file_size_config.get('updated_at', 'N/A')}")
+        
+        # ==================== 任务清理 ====================
+        with st.expander("🗑️ 任务清理配置", expanded=False):
+            st.markdown("**转换任务的保留期限**")
+            
+            task_expiry_config = configs_dict.get('task_expiry_days', {})
+            task_expiry_days = st.number_input(
+                "任务保留天数",
+                value=int(task_expiry_config.get('config_value', '7')),
+                min_value=1,
+                max_value=365,
+                step=1,
+                key="input_task_expiry"
+            )
+            
+            col_save5, col_info5 = st.columns([1, 4])
+            with col_save5:
+                if st.button("💾 保存清理配置", key="save_cleanup", use_container_width=True):
+                    try:
+                        result = update_config('task_expiry_days', str(task_expiry_days))
+                        if result.get('success'):
+                            st.success("✅ 清理配置已保存")
+                            st.session_state.config_refresh += 1
+                            st.rerun()
+                        else:
+                            st.error("❌ 保存失败")
+                    except Exception as e:
+                        st.error(f"❌ 保存失败: {str(e)}")
+            
+            with col_info5:
+                st.caption(f"最后更新: {task_expiry_config.get('updated_at', 'N/A')}")
+        
+        # ==================== 维护模式 ====================
+        with st.expander("🔧 维护模式配置", expanded=False):
+            st.markdown("**系统维护模式开关（启用后用户将无法访问主应用）**")
+            
+            maintenance_mode_config = configs_dict.get('maintenance_mode', {})
+            current_mode = maintenance_mode_config.get('config_value', 'false').lower() == 'true'
+            
+            maintenance_mode = st.toggle(
+                "启用维护模式",
+                value=current_mode,
+                help="启用后，所有用户访问主应用时将显示维护页面，管理员仍可访问管理后台",
+                key="input_maintenance_mode"
+            )
+            
+            # 显示当前状态
+            if current_mode:
+                st.warning("⚠️ **当前状态：维护模式已启用** - 用户无法访问主应用")
+            else:
+                st.success("✅ **当前状态：正常运行** - 用户可以正常访问")
+            
+            col_save6, col_info6 = st.columns([1, 4])
+            with col_save6:
+                if st.button("💾 保存维护模式", key="save_maintenance", use_container_width=True, type="primary" if maintenance_mode != current_mode else "secondary"):
+                    try:
+                        result = update_config('maintenance_mode', 'true' if maintenance_mode else 'false')
+                        if result.get('success'):
+                            if maintenance_mode:
+                                st.success("✅ 维护模式已启用 - 用户将被重定向到维护页面")
+                            else:
+                                st.success("✅ 维护模式已禁用 - 系统恢复正常")
+                            st.session_state.config_refresh += 1
+                            st.rerun()
+                        else:
+                            st.error("❌ 保存失败")
+                    except Exception as e:
+                        st.error(f"❌ 保存失败: {str(e)}")
+            
+            with col_info6:
+                st.caption(f"最后更新: {maintenance_mode_config.get('updated_at', 'N/A')}")
+        
+        # ==================== 批量操作 ====================
+        st.markdown("---")
+        st.subheader("🚀 批量操作")
+        
+        col_batch1, col_batch2 = st.columns(2)
+        
+        with col_batch1:
+            if st.button("📤 导出当前配置", use_container_width=True):
+                import json
+                config_export = {k: v['config_value'] for k, v in configs_dict.items()}
+                st.json(config_export)
+                st.download_button(
+                    label="[DOWNLOAD] 下载配置文件",
+                    data=json.dumps(config_export, indent=2, ensure_ascii=False),
+                    file_name="system_config.json",
+                    mime="application/json"
+                )
+        
+        with col_batch2:
+            if st.button("🗑️ 重置为默认值", use_container_width=True, type="secondary"):
+                st.warning("⚠️ 此操作将覆盖所有自定义配置")
+                if st.button("确认重置", key="confirm_reset"):
+                    result = init_default_configs()
+                    if result.get('success'):
+                        st.success(f"✅ {result.get('message')}")
+                        st.session_state.config_refresh += 1
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {result.get('message')}")
+        
+    except Exception as e:
+        st.error(f"❌ 加载配置失败: {str(e)}")
+        st.exception(e)
+    
+    st.markdown("---")
+    st.caption("[TIP] 提示：修改配置后立即生效，无需重启服务")
+
+# ==================== 文件管理 ====================
+
+def show_file_management():
+    """显示文件管理页面"""
+    st.title("📁 文件管理")
+    st.markdown("---")
+    
+    # 初始化session_state
+    if 'file_page' not in st.session_state:
+        st.session_state.file_page = 1
+    if 'selected_files' not in st.session_state:
+        st.session_state.selected_files = []
+    
+    try:
+        # 获取存储统计信息
+        stats = get_storage_stats()
+        
+        # 显示存储统计卡片
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric(
+                "📄 临时源文件",
+                f"{stats.get('temp_source_count', 0)}个",
+                f"{stats.get('temp_source_size_mb', 0):.2f}MB"
+            )
+        
+        with col2:
+            st.metric(
+                "📋 临时模板文件",
+                f"{stats.get('temp_template_count', 0)}个",
+                f"{stats.get('temp_template_size_mb', 0):.2f}MB"
+            )
+        
+        with col3:
+            st.metric(
+                "✅ 转换结果文件",
+                f"{stats.get('results_count', 0)}个",
+                f"{stats.get('results_size_mb', 0):.2f}MB"
+            )
+        
+        with col4:
+            results_count = stats.get('results_count', 0)
+            st.metric(
+                "📄 结果文件",
+                f"{results_count}个",
+                f"{stats.get('results_size_mb', 0):.2f}MB"
+            )
+        
+        st.markdown(f"**总占用空间**: {stats.get('total_size_mb', 0):.2f}MB")
+        st.markdown("---")
+        
+        # 操作按钮
+        col_btn1, col_btn2 = st.columns([1, 4])
+        
+        with col_btn1:
+            if st.button("🗑️ 清理所有临时文件", type="primary", use_container_width=True):
+                from file_manager import get_file_manager
+                fm = get_file_manager()
+                cleanup_result = fm.cleanup_temp_files()
+                st.success(f"✅ 清理完成！删除了 {cleanup_result['source_files'] + cleanup_result['template_files']} 个临时文件")
+                st.rerun()
+        
+        with col_btn2:
+            if st.session_state.selected_files:
+                if st.button(f"❌ 删除选中的 {len(st.session_state.selected_files)} 个文件", type="secondary", use_container_width=True):
+                    # 确认对话框
+                    st.warning(f"⚠️ 确定要删除 {len(st.session_state.selected_files)} 个文件吗？此操作不可恢复！")
+                    if st.button("✅ 确认删除", type="primary"):
+                        result = delete_files(st.session_state.selected_files)
+                        st.success(f"✅ 删除完成！成功: {result['success']}, 失败: {result['failed']}")
+                        if result['errors']:
+                            for error in result['errors']:
+                                st.error(error)
+                        st.session_state.selected_files = []
+                        st.rerun()
+        
+        st.markdown("---")
+        
+        # 获取文件列表（分页）
+        page_size = 20
+        file_data = get_file_list(page=st.session_state.file_page, page_size=page_size)
+        files = file_data.get('files', [])
+        pagination = file_data.get('pagination', {})
+        
+        if not files:
+            st.info("📭 暂无文件")
+        else:
+            # 构建表格数据
+            table_data = []
+            for file_info in files:
+                file_id = file_info['file_id']
+                is_selected = file_id in st.session_state.selected_files
+                
+                # 复选框
+                checkbox = st.checkbox(
+                    "选择",
+                    value=is_selected,
+                    key=f"checkbox_{file_id}",
+                    label_visibility="collapsed"
+                )
+                
+                # 更新选中状态
+                if checkbox and file_id not in st.session_state.selected_files:
+                    st.session_state.selected_files.append(file_id)
+                elif not checkbox and file_id in st.session_state.selected_files:
+                    st.session_state.selected_files.remove(file_id)
+                
+                table_data.append({
+                    '选择': checkbox,
+                    '用户ID': file_info.get('user_id', 'unknown')[:12],
+                    '文件名': file_info['filename'],
+                    '文件类型': file_info['file_type'],
+                    '生成时间': file_info['created_at'][:19].replace('T', ' '),
+                    '大小(KB)': file_info['size_kb'],
+                    '文件ID': file_id  # 隐藏列，用于删除
+                })
+            
+            # 全选/取消全选按钮
+            col_select1, col_select2 = st.columns(2)
+            with col_select1:
+                if st.button("☑️ 全选", key="select_all"):
+                    for file_info in files:
+                        file_id = file_info['file_id']
+                        if file_id not in st.session_state.selected_files:
+                            st.session_state.selected_files.append(file_id)
+                    st.rerun()
+            
+            with col_select2:
+                if st.button("☐ 取消全选", key="deselect_all"):
+                    st.session_state.selected_files = []
+                    st.rerun()
+            
+            # 显示文件列表
+            st.dataframe(
+                table_data,
+                column_config={
+                    "选择": st.column_config.CheckboxColumn(width="small"),
+                    "用户ID": st.column_config.TextColumn(width="medium"),
+                    "文件名": st.column_config.TextColumn(width="large"),
+                    "文件类型": st.column_config.TextColumn(width="small"),
+                    "生成时间": st.column_config.DatetimeColumn(width="medium"),
+                    "大小(KB)": st.column_config.NumberColumn(format="%.2f", width="small"),
+                    "状态": st.column_config.TextColumn(width="small"),
+                    "文件ID": None  # 隐藏列
+                },
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            # 分页控件
+            total_pages = pagination.get('total_pages', 1)
+            total_count = pagination.get('total_count', 0)
+            
+            st.markdown(f"**共 {total_count} 个文件，第 {st.session_state.file_page}/{total_pages} 页**")
+            
+            col_prev, col_mid, col_next = st.columns([1, 3, 1])
+            
+            with col_prev:
+                if st.session_state.file_page > 1:
+                    if st.button("⬅️ 上一页", use_container_width=True):
+                        st.session_state.file_page -= 1
+                        st.rerun()
+            
+            with col_next:
+                if st.session_state.file_page < total_pages:
+                    if st.button("下一页 ➡️", use_container_width=True):
+                        st.session_state.file_page += 1
+                        st.rerun()
+            
+            # 页码跳转
+            with col_mid:
+                new_page = st.number_input(
+                    "跳转到页码",
+                    min_value=1,
+                    max_value=total_pages,
+                    value=st.session_state.file_page,
+                    step=1,
+                    key="page_jump"
+                )
+                if new_page != st.session_state.file_page:
+                    st.session_state.file_page = new_page
+                    st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ 加载文件列表失败: {str(e)}")
+        st.exception(e)
 
 # ==================== 主界面 ====================
 
@@ -678,10 +1157,11 @@ def main():
             [
                 "📊 数据看板",
                 "👥 用户管理",
-                "📝 转换任务",
+                "📋 转换任务",
                 "💬 用户反馈",
                 "💰 订单管理",
-                "⚙️ 系统配置"
+                "⚙️ 系统配置",
+                "📁 文件管理"
             ],
             label_visibility="collapsed"
         )
@@ -695,7 +1175,7 @@ def main():
         show_dashboard()
     elif page == "👥 用户管理":
         show_user_management()
-    elif page == "📝 转换任务":
+    elif page == "📋 转换任务":
         show_task_management()
     elif page == "💬 用户反馈":
         show_feedback_management()
@@ -703,6 +1183,8 @@ def main():
         show_order_management()
     elif page == "⚙️ 系统配置":
         show_system_config()
+    elif page == "📁 文件管理":
+        show_file_management()
 
 if __name__ == "__main__":
     main()
