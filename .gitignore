@@ -108,3 +108,6 @@ conversation_backup_*.txt
 *.jpg
 *.jpeg
 !personal_qr_code.png
+!resource/*.png
+!resource/*.jpg
+!resource/*.jpeg
