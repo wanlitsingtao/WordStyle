@@ -3,13 +3,14 @@
 初始化数据库 - 创建所有表
 """
 from app.core.database import engine, Base
-from app.models import User, Order, ConversionTask, SystemConfig
+from app.models import User, ConversionTask, SystemConfig
+# 已移除：Order模型（项目无充值/订单功能）
 
 def init_db():
     """创建所有数据库表并初始化默认配置"""
     print("正在创建数据库表...")
     Base.metadata.create_all(bind=engine)
-    print("✅ 数据库表创建成功！")
+    print("[OK] 数据库表创建成功！")
     
     # 显示创建的表
     from sqlalchemy import inspect
@@ -34,7 +35,7 @@ def init_db():
             )
             db.add(default_config)
             db.commit()
-            print("✅ 已初始化默认配置：新用户赠送 10000 段免费额度")
+            print("[OK] 已初始化默认配置：新用户赠送 10000 段免费额度")
         else:
             print(f"ℹ️  当前免费额度配置：{existing_config.config_value} 段")
     finally:
