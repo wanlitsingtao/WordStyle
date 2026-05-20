@@ -1172,17 +1172,17 @@ class DocumentConverter:
                                        answer_text=None, answer_style=None,
                                        mode='before_heading'):
         """
-        在标题前后插入应答句（改进版：使用大纲级别识别标题）
+        在章节或段落前后插入应答句（改进版：使用大纲级别识别标题）
         :param input_file: 输入文件
         :param output_file: 输出文件（如果为None则覆盖原文件）
         :param answer_text: 应答文本
         :param answer_style: 应答样式
         :param mode: 插入模式
-            - 'before_heading': 标题前插入（默认，原有逻辑）
-            - 'after_heading': 章节后插入（在章节正文最后一段后插入）
+            - 'before_heading': 章节前插入（默认，原有逻辑）
+            - 'after_heading': 章节末插入（在章节正文最后一段后插入）
             - 'copy_chapter': 复制章节内容（未来扩展）
-            - 'before_paragraph': 逐段前插入（未来扩展）
-            - 'after_paragraph': 逐段后插入（未来扩展）
+            - 'before_paragraph': 逐段前应答（未来扩展）
+            - 'after_paragraph': 逐段后应答（未来扩展）
         :return: 是否成功，消息
         """
         if output_file is None:
@@ -1257,7 +1257,7 @@ class DocumentConverter:
     
     def _insert_before_headings(self, children, new_children, answer_template, doc):
         """
-        在标题前插入应答句（原有逻辑）
+        在章节前插入应答句（原有逻辑）
         判断条件：如果标题后下一个元素不是标题，则在该标题前插入
         :return: (insert_count, total_heading_count)
         """
@@ -1296,7 +1296,7 @@ class DocumentConverter:
     
     def _insert_after_headings(self, children, new_children, answer_template, doc):
         """
-        在章节末尾插入应答句（需求2：章节后插入）
+        在章节末插入应答句（需求2：章节后插入）
         判断条件：如果标题前是正文段落（不是标题），就在这个正文后插入应答句
         特殊情况：
         - 全文档第一个标题前不插入（因为前面没有章节）
@@ -1342,34 +1342,18 @@ class DocumentConverter:
                             answer_elem = deepcopy(answer_template)
                             new_children.append(answer_elem)
                             insert_count += 1
-        
-        # 第三步：处理文章最后一段
-        # 从后往前找第一个非标题元素（可以是正文、表格、图片等），在其后插入应答句
-        if children:
-            # 从后往前遍历，找到第一个非标题元素
-            last_content_elem = None
-            for i in range(len(children) - 1, -1, -1):
-                elem = children[i]
+            else:
+                # 当前是最后一个元素
+                # 如果当前不是标题，在其后插入应答句
+                is_not_heading = True
+                if hasattr(child, 'tag') and child.tag == qn('w:p'):
+                    if self.is_heading_paragraph(child, doc):
+                        is_not_heading = False
                 
-                if not hasattr(elem, 'tag'):
-                    continue
-                
-                # 检查是否为标题段落
-                is_heading = False
-                if elem.tag == qn('w:p'):
-                    if self.is_heading_paragraph(elem, doc):
-                        is_heading = True
-                
-                # 如果不是标题，则作为最后一个内容元素
-                if not is_heading:
-                    last_content_elem = elem
-                    break
-            
-            # 如果找到非标题元素，在其后插入应答句
-            if last_content_elem is not None:
-                answer_elem = deepcopy(answer_template)
-                new_children.append(answer_elem)
-                insert_count += 1
+                if is_not_heading:
+                    answer_elem = deepcopy(answer_template)
+                    new_children.append(answer_elem)
+                    insert_count += 1
         
         return insert_count, total_heading_count
     
@@ -2178,13 +2162,25 @@ class DocumentConverter:
             children = list(body)
             new_children = []
             
-            # 根据模式选择不同的处理逻辑
+            # 根据模式选择不同的处理逻辑（与 insert_response_after_headings 保持一致）
             if mode == 'before_heading':
                 insert_count, total_heading_count = self._insert_before_headings(
                     children, new_children, answer_template, doc
                 )
             elif mode == 'after_heading':
-                insert_count, total_heading_count = self._insert_after_chapters(
+                insert_count, total_heading_count = self._insert_after_headings(
+                    children, new_children, answer_template, doc
+                )
+            elif mode == 'copy_chapter':
+                insert_count, total_heading_count = self._insert_with_copy_chapter(
+                    children, new_children, answer_template, doc
+                )
+            elif mode == 'before_paragraph':
+                insert_count, total_heading_count = self._insert_before_paragraphs(
+                    children, new_children, answer_template, doc
+                )
+            elif mode == 'after_paragraph':
+                insert_count, total_heading_count = self._insert_after_paragraphs(
                     children, new_children, answer_template, doc
                 )
             else:
