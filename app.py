@@ -257,6 +257,7 @@ def add_comment(username, content, rating=5):
     """添加新评论（使用API提交到数据库）"""
     # [OK] 修复：使用 API 提交评论（兼容多实例部署）
     from config import BACKEND_URL  # 添加BACKEND_URL的局部导入
+    import requests  # [OK] 修复：在函数开头导入requests，确保except子句可用
     
     if BACKEND_URL and DATA_SOURCE == 'api':
         # API 模式：通过后端 API 提交
@@ -274,23 +275,48 @@ def add_comment(username, content, rating=5):
                 timeout=10
             )
             logger.info(f"[INFO] API响应状态码: {response.status_code}")
-            response.raise_for_status()
-            result = response.json()
-            logger.info(f"[INFO] API返回结果: {result}")
-            return {
-                'id': result.get('id'),
-                'username': result.get('username'),
-                'content': result.get('content'),
-                'rating': result.get('rating'),
-                'timestamp': result.get('timestamp'),
-                'likes': result.get('likes', 0),
-                'user_id': result.get('user_id')
-            }
+            
+            # [OK] 修复：检查HTTP状态码，确保数据库写入成功
+            if response.status_code == 200:
+                result = response.json()
+                logger.info(f"[INFO] API返回结果: {result}")
+                
+                # [OK] 修复：API成功后同步写入本地文件，确保数据一致性
+                new_comment = {
+                    'id': result.get('id'),
+                    'username': result.get('username'),
+                    'content': result.get('content'),
+                    'rating': result.get('rating'),
+                    'timestamp': result.get('timestamp'),
+                    'likes': result.get('likes', 0),
+                    'user_id': result.get('user_id')
+                }
+                
+                # 同步到本地文件（作为缓存和降级备份）
+                comments = load_comments()
+                comments.append(new_comment)
+                save_comments(comments)
+                
+                logger.info(f"[SUCCESS] 评论已成功写入数据库并同步到本地")
+                return new_comment
+            else:
+                # HTTP状态码不是200，说明写入失败
+                error_detail = response.json().get('detail', '未知错误')
+                logger.error(f"[ERROR] API返回错误状态码 {response.status_code}: {error_detail}")
+                raise Exception(f"数据库写入失败: {error_detail}")
+                
+        except requests.exceptions.Timeout:
+            logger.error(f"[ERROR] API请求超时（10秒）")
+            # 降级到本地存储
+        except requests.exceptions.ConnectionError:
+            logger.error(f"[ERROR] 无法连接到后端API服务器")
+            # 降级到本地存储
         except Exception as e:
             logger.error(f"[ERROR] API提交评论失败: {e}，降级到本地存储")
             # 降级到本地存储，继续执行下面的本地存储逻辑
     
     # 本地/Supabase 模式：使用本地存储（兜底逻辑）
+    logger.info(f"[INFO] 使用本地存储模式保存评论")
     comments = load_comments()
     
     new_comment = {
@@ -305,6 +331,7 @@ def add_comment(username, content, rating=5):
     
     comments.append(new_comment)
     save_comments(comments)
+    logger.info(f"[SUCCESS] 评论已保存到本地文件")
     return new_comment
 
 def like_comment(comment_id):
@@ -369,8 +396,12 @@ def show_comments_section():
                     
                     if new_comment:
                         st.success("✅ 评论发表成功！")
+                        # [OK] 优化：设置标记，告诉侧边栏使用缓存数据
+                        st.session_state.comment_refresh_only = True
                         # 使用session_state标记，通知fragment刷新
                         app_state.set_comment_refresh_needed(True)
+                        # [OK] 修复：立即触发fragment刷新，确保评论立即显示
+                        st.rerun()
                     else:
                         st.error("❌ 评论发表失败，请稍后重试")
     
@@ -653,7 +684,15 @@ with st.sidebar:
     
     # [OK] 只有初始化成功才从 API 加载数据
     if not st.session_state.get('user_init_failed', False):
-        user_data = load_user_data(app_state.get_user_id())
+        # [OK] 优化：缓存侧边栏用户数据，避免评论刷新时重复加载
+        if 'sidebar_user_data' not in st.session_state or not st.session_state.get('comment_refresh_only', False):
+            user_data = load_user_data(app_state.get_user_id())
+            st.session_state.sidebar_user_data = user_data
+        else:
+            # 使用缓存的用户数据
+            user_data = st.session_state.sidebar_user_data
+            # 清除标记，下次正常加载
+            st.session_state.comment_refresh_only = False
     else:
         # 初始化失败：使用本地默认数据（额度为0）
         user_data = {
