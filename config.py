@@ -36,16 +36,6 @@ except ImportError:
 # 优先级：st.secrets > os.getenv() > 默认值
 # 自动检测：如果 USE_SUPABASE=true 且 BACKEND_URL 存在，则使用 api 模式
 
-def _is_database_connection_string(value):
-    """判断值是否为真正的数据库连接字符串，而不是 Supabase 项目 URL。"""
-    if not value:
-        return False
-    if not isinstance(value, str):
-        return False
-    value = value.strip()
-    return value.startswith(("postgresql://", "postgres://", "sqlite:///"))
-
-
 def _load_config_from_secrets():
     """尝试从 Streamlit Secrets 加载配置
     
@@ -90,18 +80,11 @@ def _load_config_from_secrets():
             
             # ========== 3. 读取 DATABASE_URL（顶层优先）==========
             database_url = secrets.get('DATABASE_URL', None)
-            if not _is_database_connection_string(database_url):
-                database_url = None
-
             if not database_url:
                 supabase_section = secrets.get('supabase', {})
                 if isinstance(supabase_section, dict):
-                    for key in ('database_url', 'db_url', 'connection_string', 'connectionString'):
-                        candidate = supabase_section.get(key, None)
-                        if _is_database_connection_string(candidate):
-                            database_url = candidate
-                            break
-
+                    database_url = supabase_section.get('url', None)
+            
             return {
                 'use_supabase': use_supabase,
                 'database_url': database_url,
