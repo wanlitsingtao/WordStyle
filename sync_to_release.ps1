@@ -5,8 +5,8 @@
 # =====================================================
 
 param(
-    [string]$SourceDir = "E:\LingMa\WSprj",
-    [string]$TargetDir = "E:\LingMa\WordStyle"
+    [string]$SourceDir = "E:\LingMa\WordStyle\WordStyle-Dev",
+    [string]$TargetDir = "E:\LingMa\WordStyle\WordStyle-Pub"
 )
 
 Write-Host "=" * 80 -ForegroundColor Cyan

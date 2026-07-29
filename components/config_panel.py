@@ -1,149 +1,286 @@
 # -*- coding: utf-8 -*-
 """
-转换配置区组件
-从 app.py 提取
+转换配置区组件（完全参照桌面版）
+
+桌面版在主界面"转换选项"区域仅保留：
+1. "进行祈使语气转换" checkbox
+2. 章节提示语配置（独立配置区）
+
+样式映射配置通过样式信息区域的按钮打开对话框管理。
+所有其他配置（应答句、列表段落、清除章节标签等）均在样式映射对话框中管理。
 """
 import streamlit as st
+import os
 
 
-def get_answer_mode_options():
-    """获取应答句插入模式选项"""
-    return {
-        'before_heading': '章节前插入',
-        'after_heading': '章节后插入',
-        'copy_chapter': '章节后插入+章节原文副本',
-        'before_paragraph': '逐段前应答',
-        'after_paragraph': '逐段后应答'
+def _save_hint_defaults(do_hint, hint_type, hint_text, hint_image_path, hint_style):
+    """保存提示语默认配置到用户数据"""
+    from data_manager import load_user_data, save_user_data
+    hint_defaults = {
+        'do_hint': do_hint,
+        'hint_type': hint_type,
+        'hint_text': hint_text,
+        'hint_image_path': hint_image_path or "",
+        'hint_style': hint_style
     }
+    try:
+        user_id = st.session_state.get('user_id', 'default')
+        user_data = load_user_data(user_id)
+        if user_data and 'style_mappings' not in user_data:
+            user_data['style_mappings'] = {}
+        if user_data:
+            user_data['style_mappings']['_default_hint_settings'] = hint_defaults
+            save_user_data(user_data, user_id)
+            st.success("⭐ 已将提示语配置设为默认！")
+        else:
+            st.error("❌ 保存默认配置失败")
+    except Exception:
+        st.error("❌ 保存默认配置失败")
 
 
-@st.fragment
 def render_conversion_config():
     """
-    渲染转换配置区（使用fragment优化性能）
-    
-    优化点：
-    1. 使用@st.fragment隔离，避免用户交互导致全局重渲染
-    2. 仅在值真正改变时才更新session_state
-    3. 预计算索引，避免重复遍历
+    渲染转换配置区（完全参照桌面版）
+
+    包含：
+    1. 祈使语气转换 checkbox
+    2. 章节提示语配置（当勾选时显示类型/样式/文本或图片上传/清除/设为默认）
+
+    返回与 `app.py` 兼容的配置元组。
     """
-    
-    # 第一行:四个选项横向等距分布
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        if st.button("📊 样式映射", key="open_style_mapping_btn", use_container_width=True, help="如果不采用系统给的默认配置,可自定义样式映射"):
-            # 直接调用对话框,不使用session_state标记
-            from components.dialogs.style_mapping import show_style_mapping_dialog
-            show_style_mapping_dialog()
-            # 注意：不要在这里return，让函数继续执行以渲染其他控件
+    # CSS：统一控件高度（提示语配置区）
+    # 关键：Streamlit 1.57 中 file_uploader 拖拽区是 [data-testid="stFileUploaderDropzone"]（div），
+    # 不是 <section>！之前 Robot 用 section 选择器完全失效，改多少遍都没用。
+    st.markdown("""
+    <style>
+        /* === 所有控件统一盒模型 === */
+        div[data-testid="column"] [data-baseweb="select"] > div,
+        div[data-testid="column"] [data-testid="stTextInput"] input,
+        div[data-testid="column"] [data-testid="stFileUploader"],
+        div[data-testid="column"] [data-testid="stFileUploaderDropzone"],
+        div[data-testid="column"] .stButton > button,
+        div[data-testid="column"] button[kind] {
+            box-sizing: border-box !important;
+        }
 
-    with col2:
-        do_mood = st.checkbox(
-            "祈使语气转换", 
-            value=st.session_state.do_mood_config, 
-            help="将文档中的祈使语气转换为投标人语气",
-            key="mood_checkbox"
-        )
-        # 仅在值改变时更新session_state，避免不必要的重渲染
-        if do_mood != st.session_state.get('do_mood_config'):
-            st.session_state.do_mood_config = do_mood
+        /* === selectbox：高度 42px === */
+        div[data-testid="column"] [data-baseweb="select"] > div {
+            height: 42px !important;
+            min-height: 42px !important;
+        }
+        /* === text_input：高度 42px === */
+        div[data-testid="column"] [data-testid="stTextInput"] input {
+            height: 42px !important;
+            min-height: 42px !important;
+        }
+        /* === file_uploader 外层容器 === */
+        div[data-testid="column"] [data-testid="stFileUploader"] {
+            min-height: 42px !important;
+        }
+        /* 隐藏 file_uploader 的 label（collapsed 时仍占位） */
+        div[data-testid="column"] [data-testid="stFileUploader"] [data-testid="stWidgetLabel"] {
+            display: none !important;
+        }
+        /* === file_uploader 拖拽区（Streamlit 1.57 用 div，不是 section！） === */
+        div[data-testid="column"] [data-testid="stFileUploaderDropzone"] {
+            height: 42px !important;
+            min-height: 42px !important;
+            padding: 0 8px !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+        }
+        /* 拖拽区内的提示文字：缩小并单行截断 */
+        div[data-testid="column"] [data-testid="stFileUploaderDropzone"] span {
+            font-size: 0.65rem !important;
+            line-height: 1.1 !important;
+            white-space: nowrap !important;
+            overflow: hidden !important;
+            text-overflow: ellipsis !important;
+        }
+        /* 拖拽区内的文件大小限制文字：隐藏 */
+        div[data-testid="column"] [data-testid="stFileUploaderDropzone"] small {
+            display: none !important;
+        }
+        /* 拖拽区内的浏览按钮：34px，与 42px 外层留 4px 上下间距 */
+        div[data-testid="column"] [data-testid="stFileUploaderDropzone"] button {
+            height: 34px !important;
+            min-height: 34px !important;
+            flex-shrink: 0 !important;
+        }
+        /* === 普通按钮（清除图片 / 设为默认）：统一 42px === */
+        div[data-testid="column"] .stButton > button,
+        div[data-testid="column"] button[kind="secondary"],
+        div[data-testid="column"] button[kind="primary"] {
+            height: 42px !important;
+            min-height: 42px !important;
+            line-height: 1 !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+        /* === checkbox/radio 容器垂直居中 === */
+        div[data-testid="column"] .stCheckbox > label,
+        div[data-testid="column"] .stRadio > div {
+            min-height: 42px !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-    with col3:
-        do_answer = st.checkbox(
-            "插入应答句", 
-            value=st.session_state.do_answer_config, 
-            help="在章节前/后或段落前/后插入应答句",
-            key="answer_checkbox"
-        )
-        # 仅在值改变时更新session_state
-        if do_answer != st.session_state.get('do_answer_config'):
-            st.session_state.do_answer_config = do_answer
+    # ========== 转换选项（与桌面版"转换选项"区域一致：仅祈使语气转换） ==========
+    st.markdown("**转换选项**")
 
-    with col4:
-        list_bullet = st.text_input(
-            "列表符号", 
-            value=st.session_state.list_bullet_config, 
-            help="列表段落的符号",
-            key="bullet_input"
-        )
-        # 仅在值改变时更新session_state
-        if list_bullet != st.session_state.get('list_bullet_config'):
-            st.session_state.list_bullet_config = list_bullet
+    do_mood = st.checkbox(
+        "进行祈使语气转换",
+        value=st.session_state.get('do_mood_config', True),
+        help="将文档中的祈使语气转换为投标人语气",
+        key="mood_checkbox"
+    )
+    if do_mood != st.session_state.get('do_mood_config'):
+        st.session_state.do_mood_config = do_mood
 
-    # 第二行：应答句详细配置（仅当勾选"插入应答句"时显示）
-    if do_answer:
-        st.markdown("---")
-        st.markdown("**ℹ️ 应答句配置**")
-        
-        col_a, col_b, col_c = st.columns(3)
-        
-        with col_a:
-            answer_text = st.text_input(
-                "应答句文本",
-                value=st.session_state.answer_text_config,
-                help="插入的应答句内容",
-                key="answer_text_input"
-            )
-            # 仅在值改变时更新
-            if answer_text != st.session_state.get('answer_text_config'):
-                st.session_state.answer_text_config = answer_text
-        
-        with col_b:
-            # 获取模板样式列表（使用缓存的引用）
-            template_styles = st.session_state.get('template_styles', ["Normal"])
-            
-            # 预计算index，避免每次渲染都查找
-            style_index = 0
-            if st.session_state.answer_style_config in template_styles:
-                try:
-                    style_index = template_styles.index(st.session_state.answer_style_config)
-                except ValueError:
-                    style_index = 0
-            
-            answer_style = st.selectbox(
-                "应答句样式",
-                options=template_styles,
-                index=style_index,
-                help="应答句的段落样式",
-                key="answer_style_select"
-            )
-            # 实时更新 session_state
-            st.session_state.answer_style_config = answer_style
-        
-        with col_c:
-            # 使用缓存的options，保持引用稳定
-            answer_mode_options = get_answer_mode_options()
-            
-            # 预计算mode_keys和index，避免每次渲染都创建新列表
-            if 'answer_mode_keys_cache' not in st.session_state:
-                st.session_state.answer_mode_keys_cache = list(answer_mode_options.keys())
-            mode_keys = st.session_state.answer_mode_keys_cache
-            
-            # 预计算index
-            mode_index = 0
-            if st.session_state.answer_mode_config in answer_mode_options:
-                try:
-                    mode_index = mode_keys.index(st.session_state.answer_mode_config)
-                except ValueError:
-                    mode_index = 0
-            
-            answer_mode = st.selectbox(
-                "插入模式",
-                options=mode_keys,
-                format_func=lambda x: answer_mode_options[x],
-                index=mode_index,
-                help="应答句的插入位置模式",
-                key="answer_mode_select"
-            )
-            # 仅在值改变时更新
-            if answer_mode != st.session_state.get('answer_mode_config'):
-                st.session_state.answer_mode_config = answer_mode
+    # ========== 章节提示语配置（独立配置区） ==========
+    st.markdown("---")
+    st.markdown("**章节提示语**")
+
+    # 模板样式列表
+    template_styles = st.session_state.get('template_styles', ["Normal"])
+    hint_style_idx = 0
+    if st.session_state.get('hint_style_config', 'Normal') in template_styles:
+        try:
+            hint_style_idx = template_styles.index(st.session_state.hint_style_config)
+        except ValueError:
+            hint_style_idx = 0
+
+    # 读取当前类型（保持选择状态）
+    hint_type = st.session_state.get('hint_type_config', 'text')
+    hint_text = st.session_state.get('hint_text_config', '招标文件原文')
+    hint_image_path = st.session_state.get('hint_image_config', None)
+    hint_style = st.session_state.get('hint_style_config', 'Normal')
+
+    # 插入提示语复选框
+    do_hint = st.checkbox(
+        "插入提示语",
+        value=st.session_state.get('do_hint_config', False),
+        help="在每个章节标题后插入提示语（如'招标文件原文'）",
+        key="hint_checkbox"
+    )
+    if do_hint != st.session_state.get('do_hint_config'):
+        st.session_state.do_hint_config = do_hint
+
+    # 未勾选时不显示任何与提示语相关的控件
+    if not do_hint:
+        # 确保临时图片变量存在
+        if 'hint_image_config' not in st.session_state:
+            hint_image_path = None
     else:
-        # 未勾选时设置默认值
-        answer_text = st.session_state.answer_text_config
-        answer_style = st.session_state.answer_style_config
-        answer_mode = st.session_state.answer_mode_config
+        # ========== 标签行 ==========
+        lbl = st.columns([2, 2, 5, 1.5, 1.5])
+        with lbl[0]:
+            st.markdown("**类型**")
+        with lbl[1]:
+            st.markdown("**提示语样式**")
+        with lbl[2]:
+            st.markdown("**提示语文本**" if hint_type == "text" else "**上传提示语图片**")
+        with lbl[3]:
+            st.markdown("&nbsp;", unsafe_allow_html=True)
+        with lbl[4]:
+            st.markdown("&nbsp;", unsafe_allow_html=True)
+
+        # ========== 控件行（全部 label_visibility="collapsed"，底端对齐） ==========
+        ctrl = st.columns([2, 2, 5, 1.5, 1.5], vertical_alignment="center")
+        with ctrl[0]:
+            hint_type = st.radio(
+                "类型",
+                options=["text", "image"],
+                format_func=lambda x: "文本" if x == "text" else "图片",
+                index=0 if st.session_state.get('hint_type_config', 'text') == "text" else 1,
+                horizontal=True,
+                key="hint_type_config",
+                label_visibility="collapsed"
+            )
+        with ctrl[1]:
+            hint_style = st.selectbox(
+                "提示语样式",
+                options=template_styles,
+                index=hint_style_idx,
+                key="hint_style_select",
+                label_visibility="collapsed"
+            )
+            st.session_state.hint_style_config = hint_style
+        with ctrl[2]:
+            if hint_type == "text":
+                hint_text = st.text_input(
+                    "提示语文本",
+                    value=hint_text,
+                    help="提示语文本内容",
+                    key="hint_text_input",
+                    label_visibility="collapsed",
+                )
+                if hint_text != st.session_state.get('hint_text_config'):
+                    st.session_state.hint_text_config = hint_text
+            else:
+                hint_uploaded = st.file_uploader(
+                    "上传提示语图片",
+                    type=['png', 'jpg', 'jpeg', 'bmp', 'gif'],
+                    help="上传要作为提示语的图片文件",
+                    key="hint_image_uploader",
+                    label_visibility="collapsed"
+                )
+                if hint_uploaded is not None:
+                    user_id = st.session_state.get('user_id', 'default')
+                    img_ext = os.path.splitext(hint_uploaded.name)[1] or '.png'
+                    img_temp_path = f"temp_hint_image_{user_id}{img_ext}"
+                    with open(img_temp_path, 'wb') as f:
+                        f.write(hint_uploaded.getbuffer())
+                    st.session_state.hint_image_config = img_temp_path
+                    st.session_state.hint_image_uploaded = hint_uploaded.name
+                    st.success(f"✅ 已上传: {hint_uploaded.name}")
+                    hint_image_path = img_temp_path
+                elif hint_image_path and os.path.exists(hint_image_path):
+                    st.info(f"📎 当前图片: {os.path.basename(hint_image_path)}")
+                else:
+                    st.caption("请选择提示语图片文件")
+        with ctrl[3]:
+            # 清除按钮：仅图片模式显示，高度42px与下拉框齐平
+            if hint_type == "image":
+                has_image = bool(hint_image_path and os.path.exists(hint_image_path) if hint_image_path else False)
+                if st.button("🗑️ 清除图片", key="clear_hint_img_btn", use_container_width=True,
+                            disabled=not has_image,
+                            help="清除已上传的提示语图片"):
+                    if hint_image_path and os.path.exists(hint_image_path):
+                        try:
+                            os.remove(hint_image_path)
+                        except Exception:
+                            pass
+                    st.session_state.hint_image_config = None
+                    st.session_state.hint_image_uploaded = None
+                    st.rerun()
+        with ctrl[4]:
+            # 设为默认：始终在最后一列
+            if st.button("⭐ 设为默认", key="save_default_hint_btn", use_container_width=True):
+                _save_hint_defaults(do_hint, hint_type, hint_text, hint_image_path, hint_style)
+
+    # 返回配置值（保持与 app.py 的兼容）
+    do_answer = st.session_state.get('do_answer_config', False)
+    list_bullet = st.session_state.get('list_bullet_config', '•')
+    answer_text = st.session_state.get('answer_text_config', '')
+    answer_style = st.session_state.get('answer_style_config', 'Normal')
+    answer_mode = st.session_state.get('answer_mode_config', 'copy_chapter')
+    answer_source_style = st.session_state.get('answer_source_style_config', '')
+    answer_copy_style = st.session_state.get('answer_copy_style_config', '')
+    list_method = st.session_state.get('list_method_config', 'bullet')
+    list_style = st.session_state.get('list_style_config', 'Body Text')
+    list_answer_method = st.session_state.get('list_answer_method_config', 'bullet')
+    list_answer_style = st.session_state.get('list_answer_style_config', 'Body Text')
+    list_answer_bullet = st.session_state.get('list_answer_bullet_config', '•')
+    enable_list_style = st.session_state.get('enable_list_style_config', True)
+    remove_chapter_label = st.session_state.get('remove_chapter_label_config', False)
+
+    return (do_mood, do_answer, list_bullet, answer_text, answer_style, answer_mode,
+            do_hint, hint_type, hint_text, hint_image_path, hint_style,
+            answer_source_style, answer_copy_style,
+            list_method, list_style, list_answer_method, list_answer_style, list_answer_bullet,
+            remove_chapter_label, enable_list_style)
     
-    # 返回配置值供后续使用
-    return do_mood, do_answer, list_bullet, answer_text, answer_style, answer_mode

@@ -142,14 +142,22 @@ try:
         device_fingerprint = generate_device_fingerprint(f"fallback_{id(st.session_state)}")
     
     # 第二步：通过设备指纹从数据库获取或创建用户
-    user_data = get_or_create_user_by_device(device_fingerprint, user_agent)
-    
-    # 设置session_state（使用统一状态管理器）
-    app_state.set_user_id(user_data['user_id'])
-    app_state.set_device_fingerprint(device_fingerprint)
-    app_state.set_user_init_failed(False)  # 标记初始化成功
-    
-    logger.info(f"[OK] 用户初始化成功 - ID: {app_state.get_user_id()}")
+    # 但是如果用户已通过账号登录，则保持登录身份不变
+    _logged_in_uid = st.session_state.get('logged_in_user_id', None)
+    if _logged_in_uid:
+        # 已登录：使用账号身份，加载账号对应的用户数据（而非设备指纹数据）
+        app_state.set_user_id(_logged_in_uid)
+        app_state.set_device_fingerprint(device_fingerprint)
+        user_data = load_user_data(_logged_in_uid)
+        if not user_data:
+            # 降级：如果账号数据加载失败，回退到设备指纹
+            user_data = get_or_create_user_by_device(device_fingerprint, user_agent)
+        logger.info(f"[OK] 已登录用户 - ID: {_logged_in_uid}, 额度: {user_data.get('paragraphs_remaining', 0)}")
+    else:
+        user_data = get_or_create_user_by_device(device_fingerprint, user_agent)
+        app_state.set_user_id(user_data['user_id'])
+        app_state.set_device_fingerprint(device_fingerprint)
+        logger.info(f"[OK] 用户初始化成功 - ID: {app_state.get_user_id()}")
     user_init_success = True
     
 except Exception as e:
@@ -682,12 +690,16 @@ with st.sidebar:
     st.header("👤 用户信息")
     
     # 🔍 调试信息：显示当前user_id
-    # [OK] 显示用户ID或错误提示
+    # [OK] 显示用户ID或错误提示；登录后显示用户名
+    _logged_in_name = st.session_state.get('logged_in_username', None)
     if st.session_state.get('user_init_failed', False):
         st.error("❌ 获取用户ID失败")
         st.caption("用户服务暂时不可用，请稍后刷新页面重试")
     else:
-        st.caption(f"用户ID: {app_state.get_user_id()[:12]}...")
+        if _logged_in_name:
+            st.caption(f"👤 {_logged_in_name}")
+        else:
+            st.caption(f"用户ID: {app_state.get_user_id()[:12]}...")
     
     # [OK] 只有初始化成功才从 API 加载数据
     if not st.session_state.get('user_init_failed', False):
@@ -783,6 +795,174 @@ with st.sidebar:
     except Exception as e:
         logger.warning(f"加载ds.jpg失败: {e}")
     
+    # ==================== 账号绑定/登录 ====================
+    st.markdown("---")
+
+    from account_manager import create_account_manager
+
+    # 检查当前设备是否已绑定账号
+    _device_fp = st.session_state.get('device_fingerprint', '')
+    _logged_in_user = st.session_state.get('logged_in_username', None)
+    _logged_in_uid = st.session_state.get('logged_in_user_id', None)
+
+    if _logged_in_user:
+        # 已登录状态：显示用户名 + 解绑 + 退出按钮
+        st.markdown(f"👤 **{_logged_in_user}**")
+
+        # 解绑确认状态
+        if st.session_state.get('show_unbind_confirm', False):
+            st.warning("确定要解绑账号吗？解绑后用户名和密码将被清除，恢复设备指纹身份。")
+            col_ub1, col_ub2 = st.columns(2)
+            with col_ub1:
+                if st.button("✅ 确认解绑", key="confirm_unbind_btn", use_container_width=True):
+                    mgr = create_account_manager()
+                    success, msg = mgr.unbind_account(_device_fp)
+                    if success:
+                        st.session_state.logged_in_username = None
+                        st.session_state.logged_in_user_id = None
+                        st.session_state.sidebar_user_data = None
+                        st.session_state.show_unbind_confirm = False
+                        st.success(msg + " 已恢复设备指纹身份。")
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            with col_ub2:
+                if st.button("取消", key="cancel_unbind_btn", use_container_width=True):
+                    st.session_state.show_unbind_confirm = False
+                    st.rerun()
+        else:
+            if st.button("🔓 解绑用户", key="unbind_account_btn", use_container_width=True):
+                st.session_state.show_unbind_confirm = True
+                st.rerun()
+
+        if st.button("🚪 退出登录", key="logout_btn", use_container_width=True):
+            # 退出：恢复设备指纹身份
+            st.session_state.logged_in_username = None
+            st.session_state.logged_in_user_id = None
+            st.session_state.sidebar_user_data = None  # 强制刷新用户数据
+            st.rerun()
+    else:
+        # 未登录状态：显示绑定/登录按钮
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("🔗 绑定账号", key="bind_account_btn", use_container_width=True):
+                st.session_state.show_bind_dialog = True
+                st.session_state.show_login_dialog = False
+
+        with col_b:
+            if st.button("🔑 账号登录", key="login_account_btn", use_container_width=True):
+                st.session_state.show_login_dialog = True
+                st.session_state.show_bind_dialog = False
+
+    # ==================== 绑定账号对话框 ====================
+    if st.session_state.get('show_bind_dialog', False):
+        with st.expander("🔗 绑定账号", expanded=True):
+            st.markdown("将当前设备与一个易记的用户名绑定，方便以后跨设备登录。")
+            # 使用 st.form 保证所有输入原子提交，避免 password 字段值丢失
+            with st.form("bind_account_form"):
+                bind_username = st.text_input(
+                    "设置用户名",
+                    placeholder="字母、数字或中文，不区分大小写",
+                    key="bind_username_input"
+                )
+                bind_password = st.text_input(
+                    "设置密码",
+                    type="password",
+                    placeholder="设置登录密码",
+                    key="bind_password_input"
+                )
+                bind_password2 = st.text_input(
+                    "确认密码",
+                    type="password",
+                    placeholder="再次输入密码",
+                    key="bind_password2_input"
+                )
+
+                col_b1, col_b2 = st.columns(2)
+                with col_b1:
+                    submitted_bind = st.form_submit_button("✅ 确定", use_container_width=True)
+                with col_b2:
+                    cancelled_bind = st.form_submit_button("取消", use_container_width=True)
+
+            if cancelled_bind:
+                st.session_state.show_bind_dialog = False
+                # 清理 form 中的 key 避免残留
+                for k in ('bind_username_input', 'bind_password_input', 'bind_password2_input'):
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+            if submitted_bind:
+                if bind_password != bind_password2:
+                    st.error("两次输入的密码不一致")
+                elif not bind_username or not bind_password:
+                    st.error("用户名和密码不能为空")
+                else:
+                    mgr = create_account_manager()
+                    success, msg = mgr.bind_account(
+                        _device_fp, bind_username, bind_password
+                    )
+                    if success:
+                        # 绑定成功 → 自动登录，侧边栏显示用户名
+                        st.session_state.logged_in_username = bind_username.strip()
+                        st.session_state.logged_in_user_id = app_state.get_user_id()
+                        st.session_state.sidebar_user_data = None
+                        st.session_state.show_bind_dialog = False
+                        for k in ('bind_username_input', 'bind_password_input', 'bind_password2_input'):
+                            st.session_state.pop(k, None)
+                        st.success(msg + " 已自动登录。")
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+    # ==================== 账号登录对话框 ====================
+    if st.session_state.get('show_login_dialog', False):
+        with st.expander("🔑 账号登录", expanded=True):
+            st.markdown("使用已绑定的用户名和密码登录。")
+            with st.form("login_account_form"):
+                login_username = st.text_input(
+                    "用户名",
+                    placeholder="输入已绑定的用户名",
+                    key="login_username_input"
+                )
+                login_password = st.text_input(
+                    "密码",
+                    type="password",
+                    placeholder="输入登录密码",
+                    key="login_password_input"
+                )
+
+                col_l1, col_l2 = st.columns(2)
+                with col_l1:
+                    submitted_login = st.form_submit_button("✅ 登录", use_container_width=True)
+                with col_l2:
+                    cancelled_login = st.form_submit_button("取消", use_container_width=True)
+
+            if cancelled_login:
+                st.session_state.show_login_dialog = False
+                for k in ('login_username_input', 'login_password_input'):
+                    st.session_state.pop(k, None)
+                st.rerun()
+
+            if submitted_login:
+                if not login_username or not login_password:
+                    st.error("用户名和密码不能为空")
+                else:
+                    mgr = create_account_manager()
+                    success, msg, user_id = mgr.login_account(login_username, login_password)
+                    if success and user_id:
+                        st.session_state.logged_in_username = login_username.strip()
+                        st.session_state.logged_in_user_id = user_id
+                        # 切换身份后刷新用户数据
+                        app_state.set_user_id(user_id)
+                        st.session_state.sidebar_user_data = None
+                        st.session_state.show_login_dialog = False
+                        for k in ('login_username_input', 'login_password_input'):
+                            st.session_state.pop(k, None)
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
     # 居中显示版本号和版权信息
     col1, col2, col3 = st.columns([1, 6, 1])
     with col2:
@@ -870,6 +1050,22 @@ if current_source_files:
             for para_idx, para in enumerate(doc.paragraphs):
                 if para.style and para.style.name:
                     styles.add(para.style.name)
+                    # 检测大纲级别（outlineLvl）并生成虚拟样式名
+                    para_style_lower = para.style.name.lower()
+                    if not (para_style_lower.startswith('heading') or para_style_lower.startswith('head')):
+                        elem = para._element
+                        pPr = elem.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pPr')
+                        if pPr is not None:
+                            outline = pPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}outlineLvl')
+                            if outline is not None:
+                                val = outline.get('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val')
+                                if val is not None:
+                                    try:
+                                        level = int(val) + 1
+                                        if 1 <= level <= 9:
+                                            styles.add(f'[大纲级别 {level}]')
+                                    except ValueError:
+                                        pass
                 
                 # 每处理10个段落或最后一个段落时更新进度
                 if (para_idx + 1) % 10 == 0 or para_idx == len(doc.paragraphs) - 1:
@@ -1018,32 +1214,132 @@ if current_temp_template:
 st.markdown("---")
 st.subheader("⚙️ 转换配置")
 
-# 使用 session_state 保存配置，避免每次页面刷新都重置
+# ====================================================================
+# 加载用户持久化的默认配置（跨会话保持，多用户隔离）
+# 所有"设为默认"按钮保存的配置在此统一恢复
+# ====================================================================
+_user_defaults = {}
+try:
+    _uid = app_state.get_user_id()
+    if _uid:
+        _ud = load_user_data(_uid)
+        if _ud and 'style_mappings' in _ud:
+            _sm = _ud['style_mappings']
+            _user_defaults = {
+                'hint':      _sm.get('_default_hint_settings', {}) or {},
+                'answer':    _sm.get('_default_answer_config', {}) or {},
+                'list':      _sm.get('_default_list_config', {}) or {},
+                'tbl_img':   _sm.get('_default_tbl_img_config', {}) or {},
+                'rm_chapter': _sm.get('_default_remove_chapter_label', None),
+            }
+except Exception:
+    pass
+
+_h  = _user_defaults.get('hint', {})
+_a  = _user_defaults.get('answer', {})
+_l  = _user_defaults.get('list', {})
+_t  = _user_defaults.get('tbl_img', {})
+
 if 'do_mood_config' not in st.session_state:
     app_state.set_do_mood_config(True)
-if 'do_answer_config' not in st.session_state:
-    st.session_state.do_answer_config = True
-if 'list_bullet_config' not in st.session_state:
-    app_state.set_list_bullet_config("•")
-if 'answer_text_config' not in st.session_state:
-    app_state.set_answer_text_config("应答：本投标人理解并满足要求。")
-if 'answer_style_config' not in st.session_state:
-    app_state.set_answer_style_config("Normal")
-if 'answer_mode_config' not in st.session_state:
-    app_state.set_answer_mode_config('before_heading')
 
+# ── 应答句配置 ──
+if 'do_answer_config' not in st.session_state:
+    st.session_state.do_answer_config = _a.get('do_answer', False)
+if 'answer_text_config' not in st.session_state:
+    app_state.set_answer_text_config(_a.get('answer_text', '应答：本投标人理解并满足要求。'))
+if 'answer_style_config' not in st.session_state:
+    app_state.set_answer_style_config(_a.get('answer_style', 'Normal'))
+if 'answer_mode_config' not in st.session_state:
+    app_state.set_answer_mode_config(_a.get('answer_mode', 'copy_chapter'))
+if 'answer_source_style_config' not in st.session_state:
+    app_state.set_answer_source_style_config(_a.get('answer_source_style', ''))
+if 'answer_copy_style_config' not in st.session_state:
+    app_state.set_answer_copy_style_config(_a.get('answer_copy_style', ''))
+
+# ── 列表段落兜底配置 ──
+if 'enable_list_style_config' not in st.session_state:
+    app_state.set_enable_list_style_config(_l.get('enable_list', True))
+if 'list_method_config' not in st.session_state:
+    app_state.set_list_method_config(_l.get('method', 'bullet'))
+if 'list_bullet_config' not in st.session_state:
+    app_state.set_list_bullet_config(_l.get('bullet', '•'))
+if 'list_style_config' not in st.session_state:
+    app_state.set_list_style_config(_l.get('style', 'Body Text'))
+if 'list_answer_method_config' not in st.session_state:
+    app_state.set_list_answer_method_config(_l.get('answer_method', 'bullet'))
+if 'list_answer_bullet_config' not in st.session_state:
+    app_state.set_list_answer_bullet_config(_l.get('answer_bullet', '•'))
+if 'list_answer_style_config' not in st.session_state:
+    app_state.set_list_answer_style_config(_l.get('answer_style', 'Body Text'))
+
+# ── 表格/图片兜底配置 ──
+if 'enable_table_style_config' not in st.session_state:
+    app_state.set_enable_table_style_config(_t.get('enable_table_style', False))
+if 'table_style_config' not in st.session_state:
+    app_state.set_table_style_config(_t.get('table_style', 'Body Text'))
+if 'table_answer_style_config' not in st.session_state:
+    app_state.set_table_answer_style_config(_t.get('table_answer_style', ''))
+if 'enable_image_style_config' not in st.session_state:
+    app_state.set_enable_image_style_config(_t.get('enable_image_style', False))
+if 'image_style_config' not in st.session_state:
+    app_state.set_image_style_config(_t.get('image_style', 'Body Text'))
+if 'image_answer_style_config' not in st.session_state:
+    app_state.set_image_answer_style_config(_t.get('image_answer_style', ''))
+
+# ── 清除章节标签 ──
+if 'remove_chapter_label_config' not in st.session_state:
+    _rm = _user_defaults.get('rm_chapter', None)
+    app_state.set_remove_chapter_label_config(False if _rm is None else bool(_rm))
+
+# ── 提示语配置 ──
+if 'do_hint_config' not in st.session_state:
+    app_state.set_do_hint_config(_h.get('do_hint', False))
+if 'hint_type_config' not in st.session_state:
+    app_state.set_hint_type_config(_h.get('hint_type', 'text'))
+if 'hint_text_config' not in st.session_state:
+    app_state.set_hint_text_config(_h.get('hint_text', '招标文件原文'))
+if 'hint_style_config' not in st.session_state:
+    app_state.set_hint_style_config(_h.get('hint_style', 'Normal'))
+if 'hint_image_config' not in st.session_state:
+    app_state.set_hint_image_config(None)  # 图片路径不跨会话恢复（临时文件）
+
+
+# 在“⚙️ 转换配置”下放置“配置样式映射”按钮
+st.markdown("---")
+map_col1, map_col2 = st.columns([2, 8])
+with map_col1:
+    if st.button("📊 配置样式映射", key="open_style_mapping_btn", use_container_width=True,
+                 help="完整的四步样式配置（标题映射、应答句、正文映射、表格/图片/列表兜底）"):
+        from components.dialogs.style_mapping import show_style_mapping_dialog
+        show_style_mapping_dialog()
+with map_col2:
+    if current_source_files and st.session_state.get('template_styles'):
+        st.caption("点击按钮配置当前文件的样式映射")
+    else:
+        st.caption("上传源文档和模板文档后即可配置样式映射")
 
 # ==================== [FIX] 调用配置区组件渲染实际的UI控件 ====================
 # render_conversion_config() 来自 components/config_panel.py
-# 包含：样式映射按钮、祈使语气转换checkbox、插入应答句checkbox、
-#       列表符号text_input、应答句文本、应答句样式selectbox、插入模式selectbox
-do_mood, do_answer, list_bullet, answer_text, answer_style, answer_mode = render_conversion_config()
+# 完全参照桌面版布局：
+# 转换选项区：祈使语气转换checkbox
+# 章节提示语区：插入提示语checkbox + 类型/样式/内容配置
+# 所有其他配置（应答句、列表段落、表格/图片兜底、清除章节标签）均在样式映射对话框中管理
+result = render_conversion_config()
+do_mood, do_answer, list_bullet, answer_text, answer_style, answer_mode = result[0:6]
+do_hint, hint_type, hint_text, hint_image_path, hint_style = result[6:11]
+answer_source_style, answer_copy_style = result[11:13]
+list_method, list_style, list_answer_method, list_answer_style, list_answer_bullet = result[13:18]
+remove_chapter_label = result[18]
+enable_list_style = result[19] if len(result) > 19 else True
 
 # 不插入应答句时使用默认值（确保变量存在）
 if not do_answer:
     answer_text = app_state.get_answer_text_config()
     answer_style = app_state.get_answer_style_config()
     answer_mode = app_state.get_answer_mode_config()
+    answer_source_style = app_state.get_answer_source_style_config()
+    answer_copy_style = app_state.get_answer_copy_style_config()
 
 
 # 开始转换按钀
@@ -1125,6 +1421,14 @@ else:
                 'list_bullet': list_bullet if list_bullet else "—",
                 'do_answer_insertion': do_answer,
                 'answer_mode': answer_mode,
+                'answer_source_style': answer_source_style,
+                'answer_copy_style': answer_copy_style,
+                'list_method': list_method,
+                'list_style': list_style,
+                'list_answer_method': list_answer_method,
+                'list_answer_style': list_answer_style,
+                'list_answer_bullet': list_answer_bullet,
+                'remove_chapter_label': remove_chapter_label,
                 'custom_style_map': st.session_state.get('style_mapping', None)  # 用户配置的样式映尀
             }
                         
@@ -1184,8 +1488,16 @@ else:
                     
                     # [OK] 修复：使用每个文件各自的样式映射配置（与桌面版一致）
                     file_mapping = None
+                    file_tbl_img_config = {}
+                    file_list_config = {}
                     if 'file_style_mappings' in st.session_state and source_file_obj.name in st.session_state.file_style_mappings:
-                        file_mapping = st.session_state.file_style_mappings[source_file_obj.name]
+                        file_mapping_data = st.session_state.file_style_mappings[source_file_obj.name]
+                        # 样式映射部分（排除特殊键）
+                        file_mapping = {k: v for k, v in file_mapping_data.items() if not k.startswith('_')}
+                        # 表格/图片样式配置（从映射数据中的特殊键取出）
+                        file_tbl_img_config = file_mapping_data.get('_table_image_style', {})
+                        # 列表段落兜底配置（从映射数据中的特殊键取出）
+                        file_list_config = file_mapping_data.get('_list_config', {})
                         if file_mapping:
                             st.info(f"📋 {source_file_obj.name}: 使用自定义样式映射 ({len(file_mapping)} 个样式)")
                     
@@ -1208,6 +1520,19 @@ else:
                     # [HIGH_VOLTAGE] 性能优化：传递缓存的样式列表，避免重复分枀
                     source_styles_for_file = st.session_state.file_styles_map.get(source_file_obj.name, None)
                     
+                    # 获取该文件的表格/图片应答样式配置
+                    file_table_answer_style = file_tbl_img_config.get('table_answer_style', '')
+                    file_image_answer_style = file_tbl_img_config.get('image_answer_style', '')
+                    
+                    # 文件级列表段落配置覆盖全局设置
+                    _list_bullet = file_list_config.get('bullet', list_bullet if list_bullet else "—")
+                    _list_method = file_list_config.get('method', list_method)
+                    _list_style = file_list_config.get('style', list_style)
+                    _list_answer_method = file_list_config.get('answer_method', list_answer_method)
+                    _list_answer_style = file_list_config.get('answer_style', list_answer_style)
+                    _list_answer_bullet = file_list_config.get('answer_bullet', list_answer_bullet)
+                    _enable_list_style = file_list_config.get('enable_list', enable_list_style)
+                    
                     # 执行转换
                     success, actual_file, msg = converter.full_convert(
                         source_file=temp_source,
@@ -1217,12 +1542,31 @@ else:
                         do_mood=do_mood,
                         answer_text=answer_text,
                         answer_style=answer_style,
-                        list_bullet=list_bullet if list_bullet else "—",
+                        answer_source_style=answer_source_style,
+                        answer_copy_style=answer_copy_style,
+                        table_answer_style=file_table_answer_style,
+                        list_bullet=_list_bullet,
+                        list_method=_list_method,
+                        list_style=_list_style,
+                        list_answer_method=_list_answer_method,
+                        list_answer_style=_list_answer_style,
+                        list_answer_bullet=_list_answer_bullet,
                         do_answer_insertion=do_answer,
                         answer_mode=answer_mode,
+                        do_hint_insertion=do_hint,
+                        hint_type=hint_type,
+                        hint_text=hint_text,
+                        hint_image_path=hint_image_path,
+                        hint_style=hint_style,
                         progress_callback=make_progress_callback(idx, len(current_source_files)),
                         warning_callback=warning_callback,
-                        source_styles_cache=source_styles_for_file  # [HIGH_VOLTAGE] 传递缓存的样式列表
+                        source_styles_cache=source_styles_for_file,  # [HIGH_VOLTAGE] 传递缓存的样式列表
+                        table_style_override=file_tbl_img_config.get('table_style', 'Body Text'),
+                        enable_table_style=file_tbl_img_config.get('enable_table_style', False),
+                        image_style_override=file_tbl_img_config.get('image_style', 'Body Text'),
+                        enable_image_style=file_tbl_img_config.get('enable_image_style', False),
+                        remove_chapter_label=remove_chapter_label,
+                        enable_list_style=_enable_list_style
                     )
                     
                     if success:
