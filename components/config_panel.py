@@ -38,6 +38,7 @@ def _save_hint_defaults(do_hint, hint_type, hint_text, hint_image_path, hint_sty
         st.error("❌ 保存默认配置失败")
 
 
+@st.fragment
 def render_conversion_config():
     """
     渲染转换配置区（完全参照桌面版）
