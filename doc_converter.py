@@ -3561,6 +3561,9 @@ class DocumentConverter:
                 # 跳过标记为 keepOriginal 的段落
                 if self._is_keep_original_paragraph(para._element):
                     continue
+                # 跳过标题段落（标题中的"投标人"不应转换）
+                if self.is_heading_paragraph(para._element, doc):
+                    continue
                 if self.process_paragraph_mood(para):
                     modified_count += 1
             
@@ -3570,6 +3573,9 @@ class DocumentConverter:
                         for para in cell.paragraphs:
                             para_count += 1
                             if self._is_keep_original_paragraph(para._element):
+                                continue
+                            # 跳过标题段落（表格内通常无标题，但保持一致）
+                            if self.is_heading_paragraph(para._element, doc):
                                 continue
                             if self.process_paragraph_mood(para):
                                 modified_count += 1
