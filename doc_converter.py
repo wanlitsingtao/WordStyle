@@ -151,7 +151,13 @@ class DocumentConverter:
         return logger
     
     def get_all_styles_from_doc(self, doc):
-        """获取文档中使用的所有样式（包括虚拟大纲级别样式）"""
+        """获取文档中使用的所有样式（包括虚拟大纲级别样式和列表段落虚拟样式）
+        
+        Args:
+            doc: Document对象
+        Returns:
+            set: 样式名集合
+        """
         styles = set()
         for para in doc.paragraphs:
             if para.style and para.style.name:
@@ -925,6 +931,8 @@ class DocumentConverter:
     
     def copy_special_element(self, source_elem, target_doc, target_style_name, warning_callback=None):
         """复制特殊元素（OLE对象、Visio图等）
+        注意：OLE/VML对象的关系ID(rId)在新文档中无效，直接复制XML会导致文档损坏。
+        因此OLE/VML对象只添加占位提示，不复制其XML结构。
         :param warning_callback: 警告回调函数 callback(message)
         """
         try:
@@ -1830,11 +1838,11 @@ class DocumentConverter:
         策略：在段落全文(para.text)上匹配，清理零宽字符后再做正则搜索，
         匹配结果映射回原始 run 边界执行替换。
         """
-        runs = list(para.runs)
+        runs = para.runs
         if not runs:
             return False
 
-        # 原始 run 文本快照
+        # 收集所有 run 的原始文本
         run_texts_orig = [run.text for run in runs]
         full_text = ''.join(run_texts_orig)
         if not full_text.strip():
@@ -1846,7 +1854,6 @@ class DocumentConverter:
             return False
 
         # 构建 clean_text -> full_text 索引映射
-        # clean_to_full[i] = 在 full_text 中对应 clean_text[i] 的位置
         clean_to_full = []
         for fi, ch in enumerate(full_text):
             if ch not in '\u200b\u200c\u200d\ufeff':
@@ -1856,7 +1863,6 @@ class DocumentConverter:
             return False
 
         # 收集所有替换（在 full_text 坐标中）
-        # 格式: [(full_start, full_end, replacement_str), ...]
         replacements = []
 
         def _add_match(clean_start, clean_end, repl_text):
@@ -1931,20 +1937,15 @@ class DocumentConverter:
         cum_orig = 0
 
         if len(run_texts_orig) == 1:
-            # 单 run：直接使用全部 result
             new_run_texts.append(result)
         else:
-            # 多 run：前 N-1 个按比例分配，最后一个拿剩余全部
             for i, orig_text in enumerate(run_texts_orig[:-1]):
                 cum_orig += len(orig_text)
-                # 按比例计算该 run 在 result 中的结束位置
                 target_end = int(total_result * cum_orig / total_orig)
-                # 确保不后退且不越界
                 target_end = max(result_pos, min(target_end, total_result))
                 new_text = result[result_pos:target_end]
                 new_run_texts.append(new_text)
                 result_pos = target_end
-            # 最后一个 run 获取所有剩余部分
             new_run_texts.append(result[result_pos:])
 
         # 写回 run 文本
@@ -1969,7 +1970,7 @@ class DocumentConverter:
         try:
             doc = Document(input_file)
         except Exception as e:
-            return False, output_file, f"加载文档失败: {e}"
+            return False, f"加载文档失败: {e}"
         
         modified_count = 0
         para_count = 0
@@ -1998,15 +1999,12 @@ class DocumentConverter:
                         if self.process_paragraph_mood(para):
                             modified_count += 1
         
-        # 清除所有 _keepOriginal_ 书签标记
-        self._remove_keep_original_markers(doc)
-        
         # 使用重试机制保存文档
         success, actual_file, msg = self.save_with_retry(doc, output_file)
         if success:
-            return True, actual_file, f"语气转换完成！处理段落: {para_count}, 修改: {modified_count}。{msg}"
+            return True, f"语气转换完成！处理段落: {para_count}, 修改: {modified_count}。{msg}"
         else:
-            return False, output_file, msg
+            return False, msg
     
     def ensure_style_exists(self, doc, style_name):
         """确保文档中存在指定样式"""
@@ -2370,6 +2368,7 @@ class DocumentConverter:
                 pass
         
         def is_heading(elem):
+            """判断元素是否为标题段落"""
             if not hasattr(elem, 'tag'):
                 return False
             if elem.tag != qn('w:p'):
@@ -2377,6 +2376,7 @@ class DocumentConverter:
             return self.is_heading_paragraph(elem, doc)
         
         def remove_keep_original_from_element(elem):
+            """移除元素中的 keepOriginal 书签标记"""
             if not hasattr(elem, 'tag') or elem.tag != qn('w:p'):
                 return
             bookmark_ids = set()
