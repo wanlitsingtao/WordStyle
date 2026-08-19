@@ -14,6 +14,7 @@ from collections import defaultdict
 
 try:
     from docx import Document
+    from docx.table import _Cell
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement, parse_xml
     from lxml import etree
@@ -896,6 +897,141 @@ class DocumentConverter:
         else:
             run.add_picture(io.BytesIO(img_bytes), width=Emu(w_emu), height=Emu(h_emu))
     
+    @staticmethod
+    def _parse_vml_length(style, key):
+        """从 VML shape 的 style 字符串中解析长度值并转为 EMU。
+        支持 pt/in/cm/mm/px 单位（默认 pt），返回 int 或 None。"""
+        if not style:
+            return None
+        m = re.search(key + r':\s*([\d.]+)\s*(pt|in|cm|mm|px)?', style)
+        if not m:
+            return None
+        val = float(m.group(1))
+        unit = (m.group(2) or 'pt').lower()
+        emu_per_unit = {
+            'pt': 12700,
+            'in': 914400,
+            'cm': 360000,
+            'mm': 36000,
+            'px': 9525,  # 96dpi 下 1px ≈ 9525 EMU
+        }
+        return int(round(val * emu_per_unit.get(unit, 12700)))
+
+    @staticmethod
+    def _detect_image_format(blob):
+        """根据魔数判断图片格式，返回 'wmf'/'emf'/'png'/'jpeg'/'gif'/'bmp'/'tiff' 或 None。"""
+        if blob[:4] == b'\xd7\xcd\xc6\x9a' or blob[:4] == b'\x01\x00\x09\x00':
+            return 'wmf'
+        if blob[:4] == b'\x01\x00\x00\x00':
+            return 'emf'
+        if blob[:8] == b'\x89PNG\r\n\x1a\n':
+            return 'png'
+        if blob[:3] == b'\xff\xd8\xff':
+            return 'jpeg'
+        if blob[:4] == b'GIF8':
+            return 'gif'
+        if blob[:2] == b'BM':
+            return 'bmp'
+        if blob[:4] in (b'II*\x00', b'MM\x00*'):
+            return 'tiff'
+        return None
+
+    def _insert_metafile_as_picture(self, run, blob, fmt, emu_w, emu_h):
+        """把 WMF/EMF 原始字节作为图片直接插入（绕过 add_picture 的格式限制）。
+
+        Word 原生支持 WMF/EMF 矢量图，直接插入可无损保留、无需栅格化。
+        这既避免 Linux 上 Pillow 无法渲染 WMF/EMF 的问题，也避免引入 LibreOffice
+        等重量级系统依赖（拖慢 Streamlit Cloud 部署）。
+        """
+        from docx.opc.part import Part
+        from docx.opc.packuri import PackURI
+        from docx.opc.constants import RELATIONSHIP_TYPE as RT, CONTENT_TYPE as CT
+        from docx.oxml.ns import nsdecls
+
+        counter = getattr(self, '_ole_image_counter', 0) + 1
+        self._ole_image_counter = counter
+
+        content_type = CT.X_WMF if fmt == 'wmf' else CT.X_EMF
+        partname = PackURI('/word/media/ole_preview_%d.%s' % (counter, fmt))
+        image_part = Part(partname, content_type, blob, run.part.package)
+        rId = run.part.relate_to(image_part, RT.IMAGE)
+
+        docPr_id = counter + 1000
+        drawing_xml = (
+            '<w:drawing %s>'
+            '<wp:inline distT="0" distB="0" distL="0" distR="0">'
+            '<wp:extent cx="%d" cy="%d"/>'
+            '<wp:effectExtent l="0" t="0" r="0" b="0"/>'
+            '<wp:docPr id="%d" name="OLE %d"/>'
+            '<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>'
+            '<a:graphic>'
+            '<a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">'
+            '<pic:pic>'
+            '<pic:nvPicPr><pic:cNvPr id="0" name="ole_preview_%d"/><pic:cNvPicPr/></pic:nvPicPr>'
+            '<pic:blipFill><a:blip r:embed="%s"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>'
+            '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="%d" cy="%d"/></a:xfrm>'
+            '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>'
+            '</pic:pic>'
+            '</a:graphicData>'
+            '</a:graphic>'
+            '</wp:inline>'
+            '</w:drawing>'
+        ) % (
+            nsdecls('w', 'wp', 'a', 'pic', 'r'),
+            emu_w, emu_h,
+            docPr_id, docPr_id,
+            counter,
+            rId,
+            emu_w, emu_h,
+        )
+        run._element.append(parse_xml(drawing_xml))
+
+    def _add_ole_preview_image(self, run, blob, fmt, page_width_emu, available_width_emu, emu_w, emu_h):
+        """插入 OLE 预览图：WMF/EMF 直接插入原始矢量字节，其他格式走 add_picture。"""
+        # 超宽缩放（与 add_picture 保持一致）
+        if emu_w > available_width_emu:
+            target_w = int(page_width_emu * IMAGE_SCALE_RATIO)
+            scale = target_w / emu_w
+            emu_w = int(emu_w * scale)
+            emu_h = int(emu_h * scale)
+        if fmt in ('wmf', 'emf'):
+            self._insert_metafile_as_picture(run, blob, fmt, emu_w, emu_h)
+        else:
+            self.add_picture(run, blob, page_width_emu, available_width_emu, emu_w, emu_h)
+    
+    def _extract_ole_preview(self, part, obj_elem):
+        """从 OLE 对象中提取预览图，返回 (blob, emu_w, emu_h, fmt) 或 None。
+        fmt 为 'wmf'/'emf'/'png'/'jpeg' 等原始格式标识；WMF/EMF 不做栅格化转换。
+        显示尺寸从 v:shape 的 style 属性解析（pt → EMU），避免用图片像素反推导致失真。"""
+        try:
+            shape = obj_elem.find('{urn:schemas-microsoft-com:vml}shape')
+            if shape is None:
+                print("[OLE-DIAG] 未找到 v:shape")
+                return None
+            imagedata = shape.find('{urn:schemas-microsoft-com:vml}imagedata')
+            if imagedata is None:
+                print("[OLE-DIAG] v:shape 中未找到 v:imagedata")
+                return None
+            rId = imagedata.get(qn('r:id')) or imagedata.get(qn('r:embed'))
+            if not rId:
+                print("[OLE-DIAG] v:imagedata 缺少 r:id/r:embed")
+                return None
+            style = shape.get('style') or ''
+            emu_w = self._parse_vml_length(style, 'width')
+            emu_h = self._parse_vml_length(style, 'height')
+            if emu_w is None or emu_h is None:
+                print(f"[OLE-DIAG] 无法解析尺寸 style={style!r}")
+                return None
+            blob = part.related_parts[rId].blob
+            fmt = self._detect_image_format(blob)
+            if fmt is None:
+                print(f"[OLE-DIAG] 无法识别预览图格式 rId={rId} 头={blob[:4].hex()}")
+                return None
+            return (blob, emu_w, emu_h, fmt)
+        except Exception as e:
+            print(f"[OLE-DIAG] _extract_ole_preview 异常: {e!r}")
+            return None
+    
     def set_table_width(self, table, width_emu):
         """设置表格宽度"""
         width_dxa = int(width_emu / 635)
@@ -953,10 +1089,12 @@ class DocumentConverter:
         else:
             return self.copy_special_element(source_elem, target_doc, target_style_name)
     
-    def copy_special_element(self, source_elem, target_doc, target_style_name, warning_callback=None):
+    def copy_special_element(self, source_elem, target_doc, target_style_name,
+                             source_part=None, page_width_emu=None, available_width_emu=None,
+                             warning_callback=None):
         """复制特殊元素（OLE对象、Visio图等）
-        注意：OLE/VML对象的关系ID(rId)在新文档中无效，直接复制XML会导致文档损坏。
-        因此OLE/VML对象只添加占位提示，不复制其XML结构。
+        OLE 对象：提取其预览图转为 PNG 后作为普通图片插入；
+        独立 VML 形状（非 OLE 预览）无法安全复制关系 ID，跳过其 XML 结构。
         :param warning_callback: 警告回调函数 callback(message)
         """
         try:
@@ -972,18 +1110,24 @@ class DocumentConverter:
             shapes = source_elem.findall('.//{urn:schemas-microsoft-com:vml}shape')
             
             if objects or shapes:
-                # 生成告警
-                if warning_callback:
-                    warning_msg = f"[WARNING] 检测到 {len(objects)} 个 OLE 对象和 {len(shapes)} 个 VML 形状，请手动检查转换结果"
-                    warning_callback(warning_msg)
-                
-                # 对于包含特殊对象的元素，我们尝试直接复制XML结构
-                from copy import deepcopy
-                new_elem = deepcopy(source_elem)
-                
-                # 将复制的元素添加到新段落的底层XML中
-                new_para._element.append(new_elem)
-                
+                inserted = False
+                if source_part is not None and page_width_emu is not None and available_width_emu is not None:
+                    for obj in objects:
+                        result = self._extract_ole_preview(source_part, obj)
+                        if result is not None:
+                            blob, emu_w, emu_h, fmt = result
+                            pic_run = new_para.add_run()
+                            self._add_ole_preview_image(pic_run, blob, fmt, page_width_emu, available_width_emu, emu_w, emu_h)
+                            inserted = True
+                            break
+                if not inserted:
+                    # 无法提取预览图时回退占位提示
+                    new_para.add_run("[OLE对象，请手动复制]")
+                    if warning_callback:
+                        try:
+                            warning_callback(f"[WARNING] 存在无法自动提取预览图的 OLE 对象，已跳过")
+                        except Exception:
+                            pass
                 return new_para
             else:
                 # 如果没有特殊对象，返回空段落
@@ -1027,6 +1171,7 @@ class DocumentConverter:
         :param remove_chapter_label: 是否清除"第X章/第X节"等章节标记
         :param list_method: 列表段落处理方式 'bullet'（符号）或 'style'（样式）
         :param list_style: 列表段落兜底样式名（当list_method='style'时使用）
+        :param enable_list_style: 是否启用列表样式处理
         """
         # 调试：检查大纲级别
         outline_level = self.get_outline_level(source_para)
@@ -1067,21 +1212,11 @@ class DocumentConverter:
         has_ole_objects = source_para._element.findall('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}object')
         has_vml_shapes = source_para._element.findall('.//{urn:schemas-microsoft-com:vml}shape')
         
-        # ★ 修复：包含 OLE/VML 对象的段落，按源文档顺序重建内容：
-        # OLE对象所在run的位置插入占位提示，文本保持原位置。
-        # 不能直接深度复制OLE的XML到新文档，因为OLE引用的关系ID(rId)在新文档中无效，
-        # 会导致文档打开报错。文本内容必须保留，避免用户信息丢失。
+        # 包含 OLE/VML 对象的段落，按源文档顺序重建内容：
+        # OLE 对象提取其预览图作为普通图片插入；独立 VML 形状跳过其 XML；
+        # 文本内容保持原位置。不 deepcopy OLE 的 XML（rId 在新文档中无效，会导致文档损坏）。
         if has_ole_objects or has_vml_shapes:
-            warning_msg = f"[WARNING] 段落 {para_idx} 包含 OLE/VML 对象\n  - OLE 对象数: {len(has_ole_objects)}\n  - VML 形状数: {len(has_vml_shapes)}\n  文本内容已保留，OLE对象请在原文中手动复制。"
-            print(warning_msg)
-            if warning_callback:
-                try:
-                    warning_callback(warning_msg)
-                except:
-                    pass
-            
-            # 创建新段落，设置目标样式
-            # ★ 修复：OLE提示语段落使用图片兜底样式（如果启用了图片样式覆盖）
+            # 创建新段落，设置目标样式（OLE 图片段落使用图片兜底样式）
             ole_para_style = target_style_name
             if enable_image_style and image_style_override:
                 try:
@@ -1095,33 +1230,30 @@ class DocumentConverter:
             except KeyError:
                 new_para.style = target_doc.styles['Normal']
             
-            # 按源段落的XML子元素顺序重建内容
-            # run的XML顺序与 source_para.runs 的顺序一致
+            ole_fallback = False
             for run in source_para.runs:
                 # 检查这个run是否包含OLE对象
                 run_has_ole = bool(run._element.findall('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}object'))
                 run_has_vml = bool(run._element.findall('.//{urn:schemas-microsoft-com:vml}shape'))
                 
-                if run_has_ole or run_has_vml:
-                    # OLE对象所在位置：插入占位提示（替代原OLE对象）
-                    # ★ 修复：OLE占位提示应用图片兜底样式格式
-                    ole_run = new_para.add_run("[OLE对象，请手动复制]")
-                    if enable_image_style and image_style_override:
-                        try:
-                            img_style = target_doc.styles[image_style_override]
-                            if img_style.font:
-                                ole_run.font.bold = img_style.font.bold
-                                ole_run.font.italic = img_style.font.italic
-                                ole_run.font.underline = img_style.font.underline
-                                if img_style.font.size:
-                                    ole_run.font.size = img_style.font.size
-                                if img_style.font.color and img_style.font.color.rgb:
-                                    try:
-                                        ole_run.font.color.rgb = img_style.font.color.rgb
-                                    except:
-                                        pass
-                        except KeyError:
-                            pass
+                if run_has_ole:
+                    # 提取 OLE 预览图作为普通图片插入
+                    inserted = False
+                    for obj in run._element.findall('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}object'):
+                        result = self._extract_ole_preview(source_para.part, obj)
+                        if result is not None:
+                            blob, emu_w, emu_h, fmt = result
+                            pic_run = new_para.add_run()
+                            self._add_ole_preview_image(pic_run, blob, fmt, page_width_emu, available_width_emu, emu_w, emu_h)
+                            inserted = True
+                            break
+                    if not inserted:
+                        # 提取失败：在文档相应位置插入占位提示（该段落已按图片目标样式设置）
+                        new_para.add_run("[OLE对象，请手动复制]")
+                        ole_fallback = True
+                elif run_has_vml:
+                    # 独立 VML 形状（非 OLE 预览）：跳过其 XML，不复制
+                    pass
                 elif run.text:
                     # 普通文本：复制文本及格式
                     new_run = new_para.add_run(run.text)
@@ -1137,6 +1269,15 @@ class DocumentConverter:
                                 new_run.font.color.rgb = run.font.color.rgb
                             except:
                                 pass
+            
+            if ole_fallback:
+                warning_msg = f"[WARNING] 段落 {para_idx} 存在无法自动提取预览图的 OLE 对象，已跳过该对象"
+                print(warning_msg)
+                if warning_callback:
+                    try:
+                        warning_callback(warning_msg)
+                    except:
+                        pass
             
             return new_para
         
@@ -1422,48 +1563,156 @@ class DocumentConverter:
         
         return new_para
     
-    def detect_merged_cells(self, table):
-        """
-        检测表格中的合并单元格
-        :param table: python-docx 表格对象
-        :return: 包含合并信息的字典 {'has_merge': bool, 'grid_span_count': int, 'v_merge_count': int}
-        """
-        grid_span_count = 0
-        v_merge_count = 0
+    def _copy_table_grid(self, new_table, source_table):
+        """复制源表格的列宽网格（w:tblGrid，纯数值，不含任何样式定义）。"""
+        src_grid = source_table._tbl.find(qn('w:tblGrid'))
+        new_grid = new_table._tbl.find(qn('w:tblGrid'))
+        if src_grid is None or new_grid is None:
+            return
+        # 清空目标表格默认的等宽 gridCol
+        for gc in list(new_grid.findall(qn('w:gridCol'))):
+            new_grid.remove(gc)
+        # 复制源表格的列宽（deepcopy 仅复制列宽数值，安全）
+        for gc in src_grid.findall(qn('w:gridCol')):
+            new_grid.append(deepcopy(gc))
+    
+    def _collect_merge_regions(self, source_table):
+        """收集表格中所有合并单元格区域。
         
-        for row in table.rows:
-            for cell in row.cells:
-                tc_pr = cell._element.find(qn('w:tcPr'))
-                if tc_pr is not None:
-                    # 检测横向合并
-                    grid_span_elem = tc_pr.find(qn('w:gridSpan'))
-                    if grid_span_elem is not None:
-                        span_val = grid_span_elem.get(qn('w:val'))
-                        if span_val:
+        返回 [(top, left, bottom, right), ...]，坐标为网格坐标，bottom/right 为开区间（结束行/列索引）。
+        横向合并通过 gridSpan 识别，纵向合并通过 vMerge=restart 及后续 continue 链识别。
+        """
+        tbl_el = source_table._tbl
+        tr_lst = tbl_el.tr_lst
+        regions = []
+        for ri, tr in enumerate(tr_lst):
+            for tc in tr.tc_lst:
+                vm = tc.vMerge
+                if vm == 'continue':
+                    # continue 单元格不是合并区域起点，跳过
+                    continue
+                span = tc.grid_span
+                top = tc.top
+                left = tc.left
+                right = left + span
+                bottom = top + 1
+                if vm == 'restart':
+                    # 向下找纵向 continue 链，计算合并高度
+                    r = ri + 1
+                    while r < len(tr_lst):
+                        found = False
+                        for tcc in tr_lst[r].tc_lst:
+                            if tcc.vMerge == 'continue' and tcc.left == left:
+                                bottom = r + 1
+                                found = True
+                                break
+                        if not found:
+                            break
+                        r += 1
+                if span > 1 or vm == 'restart':
+                    regions.append((top, left, bottom, right))
+        return regions
+    
+    def _copy_cell_content(self, source_cell, new_cell, target_doc, table_idx, cell_pos,
+                           available_width_emu, warning_callback=None,
+                           table_style_override=None, enable_table_style=False):
+        """复制单个单元格内容（段落文本、图片、OLE/VML 对象）。
+        
+        样式决策保持与原来一致：表格内段落只按表格样式定义处理，不参与正文样式映射。
+        """
+        def _get_table_para_style(src_style_name):
+            if enable_table_style and table_style_override:
+                try:
+                    target_doc.styles[table_style_override]
+                    return table_style_override
+                except KeyError:
+                    return DEFAULT_TARGET
+            else:
+                try:
+                    target_doc.styles[src_style_name]
+                    return src_style_name
+                except KeyError:
+                    return DEFAULT_TARGET
+        
+        # 清空单元格内容
+        new_cell._element.clear_content()
+        
+        for para in source_cell.paragraphs:
+            new_para = new_cell.add_paragraph()
+            src_para_style = para.style.name
+            new_para.style = _get_table_para_style(src_para_style)
+            
+            if self.has_numbering(para):
+                new_para.add_run(self.list_bullet)
+                self.remove_auto_numbering(new_para)
+                full_text = ''.join(run.text for run in para.runs)
+                cleaned_text = clean_list_numbering(full_text)
+                if cleaned_text:
+                    new_para.add_run(cleaned_text)
+                for run in para.runs:
+                    blips = run._element.findall('.//' + qn('a:blip'))
+                    for blip in blips:
+                        rId = blip.get(qn('r:embed'))
+                        if rId:
                             try:
-                                span = int(span_val)
-                                if span > 1:
-                                    grid_span_count += 1
-                            except ValueError:
+                                img_part = para.part.related_parts[rId]
+                                img_bytes = img_part.blob
+                                emu_w, emu_h = self.get_image_extent(blip)
+                                pic_run = new_para.add_run()
+                                self.add_picture(pic_run, img_bytes, available_width_emu, available_width_emu, emu_w, emu_h)
+                            except Exception:
                                 pass
-                    
-                    # 检测纵向合并
-                    v_merge_elem = tc_pr.find(qn('w:vMerge'))
-                    if v_merge_elem is not None:
-                        v_merge_count += 1
-        
-        has_merge = (grid_span_count > 0 or v_merge_count > 0)
-        return {
-            'has_merge': has_merge,
-            'grid_span_count': grid_span_count,
-            'v_merge_count': v_merge_count
-        }
+                continue
+            
+            # 检查是否包含特殊对象（Visio图、OLE对象等）
+            objects = para._element.findall('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}object')
+            shapes = para._element.findall('.//{urn:schemas-microsoft-com:vml}shape')
+            
+            if objects or shapes:
+                # OLE 对象：提取预览图作为普通图片插入；独立 VML 形状跳过其 XML（不 deepcopy，避免损坏文档）
+                inserted = False
+                for obj in objects:
+                    result = self._extract_ole_preview(para.part, obj)
+                    if result is not None:
+                        blob, emu_w, emu_h, fmt = result
+                        pic_run = new_para.add_run()
+                        self._add_ole_preview_image(pic_run, blob, fmt, available_width_emu, available_width_emu, emu_w, emu_h)
+                        inserted = True
+                        break
+                if not inserted:
+                    # 提取失败：在单元格内插入占位提示
+                    new_para.add_run("[OLE对象，请手动复制]")
+                    if warning_callback:
+                        try:
+                            warning_msg = f"表格 {table_idx} 单元格 {cell_pos} 存在无法自动提取预览图的 OLE/VML 对象"
+                            warning_callback(warning_msg)
+                        except Exception:
+                            pass
+            else:
+                for run in para.runs:
+                    blips = run._element.findall('.//' + qn('a:blip'))
+                    if blips:
+                        for blip in blips:
+                            rId = blip.get(qn('r:embed'))
+                            if rId:
+                                try:
+                                    img_part = para.part.related_parts[rId]
+                                    img_bytes = img_part.blob
+                                    emu_w, emu_h = self.get_image_extent(blip)
+                                    pic_run = new_para.add_run()
+                                    self.add_picture(pic_run, img_bytes, available_width_emu, available_width_emu, emu_w, emu_h)
+                                except Exception:
+                                    pass
+                    else:
+                        if run.text:
+                            new_para.add_run(run.text)
     
     def copy_table_with_images(self, source_table, target_doc, table_idx, available_width_emu, source_file="",
                                warning_callback=None, table_style_override=None, enable_table_style=False):
         """
-        复制表格（包含图片、边框）
-        注意：不支持合并单元格，会输出警告信息
+        复制表格（包含图片、边框、合并单元格结构）
+        合并单元格通过底层网格坐标 + 官方 merge() 重建，仅搬移合并结构（gridSpan/vMerge），
+        不 deepcopy 源表格 XML，因此不会引入模板之外的样式。
         :param source_table: 源表格
         :param target_doc: 目标文档
         :param table_idx: 表格索引
@@ -1473,127 +1722,60 @@ class DocumentConverter:
         :param table_style_override: 表格样式覆盖（当enable_table_style=True时使用）
         :param enable_table_style: 是否启用表格样式覆盖
         """
-        # 检测合并单元格
-        merge_info = self.detect_merged_cells(source_table)
-        if merge_info['has_merge'] and warning_callback:
-            warnings = []
-            if merge_info['grid_span_count'] > 0:
-                warnings.append(f"{merge_info['grid_span_count']}个横向合并")
-            if merge_info['v_merge_count'] > 0:
-                warnings.append(f"{merge_info['v_merge_count']}个纵向合并")
-            warning_msg = f"表格 {table_idx} 包含合并单元格（{'、'.join(warnings)}），已跳过合并属性，请手动调整"
-            warning_callback(warning_msg)
+        # 获取源表格的网格维度（用底层网格，避免 row.cells 展开导致维度失真）
+        tbl_el = source_table._tbl
+        rows = len(tbl_el.tr_lst)
+        cols = tbl_el.col_count
         
-        # 获取源表格的行数和列数
-        rows = len(source_table.rows)
-        cols = len(source_table.columns)
-        
-        # 创建新表格
+        # 创建规则网格表格
         new_table = target_doc.add_table(rows=rows, cols=cols)
-        new_table.style = source_table.style
+        try:
+            new_table.style = source_table.style
+        except (KeyError, ValueError):
+            # 模板中不存在该表格样式时保持默认样式，避免引入模板外样式
+            pass
         
-        # 表格单元格样式：两级决策辅助函数
-        def _get_table_para_style(src_style_name):
-            """决定表格内段落的目标样式
-            表格不受样式映射影响，只按单独的表格样式定义处理：
-            1. enable_table_style=True → 使用table_style_override指定的样式
-            2. 未启用 → 保留源样式名（模板中存在则用，否则DEFAULT_TARGET）
-            """
-            if enable_table_style and table_style_override:
-                # 级别1：复选框选中，使用覆盖样式
-                try:
-                    target_doc.styles[table_style_override]
-                    return table_style_override
-                except KeyError:
-                    return DEFAULT_TARGET
-            else:
-                # 级别2：保留源样式名
-                try:
-                    target_doc.styles[src_style_name]
-                    return src_style_name
-                except KeyError:
-                    return DEFAULT_TARGET
-                except KeyError:
-                    return DEFAULT_TARGET
-        
+        # 复制列宽、设置宽度和边框
+        self._copy_table_grid(new_table, source_table)
         self.set_table_width(new_table, available_width_emu)
         self.set_table_borders(new_table)
         
-        # 复制单元格内容（简单的双层循环）
-        for i, row in enumerate(source_table.rows):
-            for j, cell in enumerate(row.cells):
-                try:
-                    new_cell = new_table.cell(i, j)
-                except IndexError:
+        # 先建立合并结构（在空表上 merge，仅重建 gridSpan/vMerge）
+        for (top, left, bottom, right) in self._collect_merge_regions(source_table):
+            try:
+                new_table.cell(top, left).merge(new_table.cell(bottom - 1, right - 1))
+            except Exception:
+                # 个别非法/重叠区域跳过，不影响整体转换
+                pass
+        
+        # 复制内容：遍历底层 tc，跳过 vMerge=continue，用网格坐标定位目标单元格。
+        # 先一次性构建目标表格 grid 坐标 -> _Cell 映射，避免反复调用 table.cell()
+        # （每次 cell() 都会重算整个 _cells 列表，导致 O(n²) 性能问题）。
+        cell_map = {}
+        for tr in new_table._tbl.tr_lst:
+            for tc in tr.tc_lst:
+                # ★ 修复：纵向合并的 continue cell 的 top 会继承 restart 的 top 值，
+                # 若不加过滤，continue 会用相同 (top,left) 覆盖 restart 的映射，
+                # 导致内容被复制到 continue 位置而 restart 位置为空。
+                if tc.vMerge == 'continue':
                     continue
-                
-                # 清空单元格内容
-                new_cell._element.clear_content()
-                
-                # 复制段落内容
-                for para_idx, para in enumerate(cell.paragraphs):
-                    new_para = new_cell.add_paragraph()
-                    src_para_style = para.style.name
-                    new_para.style = _get_table_para_style(src_para_style)
-                    
-                    if self.has_numbering(para):
-                        new_para.add_run(self.list_bullet)
-                        self.remove_auto_numbering(new_para)
-                        full_text = ''.join(run.text for run in para.runs)
-                        cleaned_text = clean_list_numbering(full_text)
-                        if cleaned_text:
-                            new_para.add_run(cleaned_text)
-                        for run_idx, run in enumerate(para.runs):
-                            blips = run._element.findall('.//' + qn('a:blip'))
-                            for blip in blips:
-                                rId = blip.get(qn('r:embed'))
-                                if rId:
-                                    try:
-                                        img_part = para.part.related_parts[rId]
-                                        img_bytes = img_part.blob
-                                        emu_w, emu_h = self.get_image_extent(blip)
-                                        pic_run = new_para.add_run()
-                                        self.add_picture(pic_run, img_bytes, available_width_emu, available_width_emu, emu_w, emu_h)
-                                    except Exception:
-                                        pass
-                        continue
-                    
-                    # 检查是否包含特殊对象（Visio图、OLE对象等）
-                    objects = para._element.findall('.//{http://schemas.openxmlformats.org/wordprocessingml/2006/main}object')
-                    shapes = para._element.findall('.//{urn:schemas-microsoft-com:vml}shape')
-                    
-                    if objects or shapes:
-                        # 复制特殊对象
-                        for obj in objects + shapes:
-                            new_obj = deepcopy(obj)
-                            new_para._element.append(new_obj)
-                        
-                        # 输出警告
-                        if warning_callback:
-                            try:
-                                warning_msg = f"表格 {table_idx} 单元格 [{i},{j}] 包含 OLE/VML 对象"
-                                warning_callback(warning_msg)
-                            except:
-                                pass
-                    else:
-                        # 处理普通文本和图片
-                        for run_idx, run in enumerate(para.runs):
-                            blips = run._element.findall('.//' + qn('a:blip'))
-                            if blips:
-                                for blip in blips:
-                                    rId = blip.get(qn('r:embed'))
-                                    if rId:
-                                        try:
-                                            img_part = para.part.related_parts[rId]
-                                            img_bytes = img_part.blob
-                                            emu_w, emu_h = self.get_image_extent(blip)
-                                            pic_run = new_para.add_run()
-                                            self.add_picture(pic_run, img_bytes, available_width_emu, available_width_emu, emu_w, emu_h)
-                                        except Exception:
-                                            pass
-                            else:
-                                if run.text:
-                                    new_para.add_run(run.text)
+                cell_map[(tc.top, tc.left)] = _Cell(tc, new_table)
+        
+        for tr in tbl_el.tr_lst:
+            for tc in tr.tc_lst:
+                if tc.vMerge == 'continue':
+                    continue
+                top = tc.top
+                left = tc.left
+                new_cell = cell_map.get((top, left))
+                if new_cell is None:
+                    continue
+                source_cell = _Cell(tc, source_table)
+                cell_pos = f"[{top},{left}]"
+                self._copy_cell_content(source_cell, new_cell, target_doc, table_idx, cell_pos,
+                                        available_width_emu, warning_callback,
+                                        table_style_override=table_style_override,
+                                        enable_table_style=enable_table_style)
         
         return new_table
     
@@ -1602,7 +1784,8 @@ class DocumentConverter:
                        table_style_override=None, enable_table_style=False,
                        image_style_override=None, enable_image_style=False,
                        remove_chapter_label=False,
-                       list_method='bullet', list_style='Body Text'):
+                       list_method='bullet', list_style='Body Text',
+                       enable_list_style=True):
         """
         样式转换主函数
         :param source_file: 源文件路径
@@ -1619,6 +1802,7 @@ class DocumentConverter:
         :param remove_chapter_label: 是否清除"第X章/第X节"等章节标记
         :param list_method: 列表段落处理方式 'bullet'（符号）或 'style'（样式）
         :param list_style: 列表段落兜底样式名（当list_method='style'时使用）
+        :param enable_list_style: 是否启用列表样式处理
         :return: (success, actual_file, message)
         """
         # 使用局部样式映射副本，避免修改全局变量
@@ -1784,7 +1968,9 @@ class DocumentConverter:
                     target_style = DEFAULT_TARGET
                 
                 # 复制特殊元素
-                special_para = self.copy_special_element(child, new_doc, target_style, warning_callback)  # [FIX] 传递warning_callback参数
+                special_para = self.copy_special_element(child, new_doc, target_style,
+                                                         source_doc.part, page_width, available_width,
+                                                         warning_callback)
                 if special_para is not None:
                     self.stats["para"] += 1  # 计入统计
         
