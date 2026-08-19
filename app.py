@@ -790,23 +790,7 @@ with st.sidebar:
     # 管理后台入口（隐藏链接，通过URL访问）
     # st.markdown("[[TOOL] 管理后台](/?page=admin)")
     
-    st.markdown("---")
-    
-    # 显示提示文字
-    st.markdown('<div style="text-align: center; margin-bottom: 1rem;">', unsafe_allow_html=True)
-    st.markdown('**更好的体验，需要你的支持！**')
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # 显示ds.jpg图片
-    try:
-        ds_image_path = Path("resource/ds.jpg")
-        if ds_image_path.exists():
-            st.image(str(ds_image_path), use_container_width=True)
-    except Exception as e:
-        logger.warning(f"加载ds.jpg失败: {e}")
-    
     # ==================== 账号绑定/登录 ====================
-    st.markdown("---")
 
     from account_manager import create_account_manager
 
@@ -972,6 +956,23 @@ with st.sidebar:
                         st.rerun()
                     else:
                         st.error(msg)
+
+    st.markdown("---")
+
+    # 显示提示文字
+    st.markdown('<div style="text-align: center; margin-bottom: 1rem;">', unsafe_allow_html=True)
+    st.markdown('**更好的体验，需要你的支持！**')
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # 显示ds.jpg图片
+    try:
+        ds_image_path = Path("resource/ds.jpg")
+        if ds_image_path.exists():
+            st.image(str(ds_image_path), use_container_width=True)
+    except Exception as e:
+        logger.warning(f"加载ds.jpg失败: {e}")
+
+    st.markdown("---")
 
     # 需求提交入口
     if st.button("💡 提交需求/反馈", use_container_width=True, key="feedback_btn"):
