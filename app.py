@@ -614,7 +614,7 @@ st.markdown("""
 # 说明信息
 st.markdown("""
 <div style='background-color: #fff3cd; padding: 10px; border-radius: 5px; margin-bottom: 10px;'>
- <strong>说明：</strong>本程序不处理文档中OLE图片（例如Visio原生图），文档转换后系统会告诉你，文档中是否有这些内容，需要你手动处理。文档转换完成后，请及时下载，文档在转换完成后会被清理。
+ <strong>说明：</strong>文档转换完成后，请及时下载，源文档和结果文档会被自动清理。自行做好标书检查，Good luck！
 </div>
 """, unsafe_allow_html=True)
 
@@ -786,10 +786,6 @@ with st.sidebar:
     # [OK] 暂时隐藏查看转换历史按钮
     # if st.button("📋 查看转换历史", use_container_width=True, key="view_history_btn"):
     #     show_history_dialog()
-    
-    # 需求提交入口
-    if st.button("💡 提交需求/反馈", use_container_width=True, key="feedback_btn"):
-        show_feedback_dialog()
     
     # 管理后台入口（隐藏链接，通过URL访问）
     # st.markdown("[[TOOL] 管理后台](/?page=admin)")
@@ -977,6 +973,10 @@ with st.sidebar:
                     else:
                         st.error(msg)
 
+    # 需求提交入口
+    if st.button("💡 提交需求/反馈", use_container_width=True, key="feedback_btn"):
+        show_feedback_dialog()
+
     # 居中显示版本号和版权信息
     col1, col2, col3 = st.columns([1, 6, 1])
     with col2:
@@ -994,7 +994,7 @@ if 'source_files_uploaded' not in st.session_state:
 
 st.subheader("📄 上传源文档")
 
-st.info("⚠️ 仅支持 **.docx** 格式（Word 2007 及以上）。\n\n如果您的文档是 **.doc** 格式（Word 97-2003），请先用 Word 打开后「另存为」**.docx** 格式再上传。", icon="💡")
+st.info("⚠️ 仅支持 **.docx** 格式（Word 2007 及以上）。如果您的文档是 **.doc** 格式（Word 97-2003），请先用 Word 打开后「另存为」**.docx** 格式再上传。", icon="💡")
 
 source_files = st.file_uploader(
     "选择要转换的 Word 文档（可多选）",
@@ -1891,9 +1891,7 @@ with st.expander("📖 使用说明", expanded=False):
 - 将招标文件的祈使语气自动转为投标人口吻（"应""须""必须"→统统消失）
 - 五种应答句插入模式，自动批量生成应答内容
 - 图片/文本提示语插入，标注原文位置
-- 自动检测OLE对象、Visio图，转换后明确提醒
-
-即便有上述限制，工具也已帮你完成绝大部分工作，剩下的就是舒心检查、把标书打磨得更完美。
+剩下的就是舒心检查、把标书打磨得更完美。
 
 ---
 
@@ -1962,12 +1960,6 @@ with st.expander("📖 使用说明", expanded=False):
 > ⚠️ 一个设备指纹只能绑定一个账号，用户名不区分大小写且不可重复。
 
 ---
-
-### ⚠️ 注意事项
-
-**已知限制：**
-- Visio 图无法自动转换，需在文档转换完成后手动粘贴
-- OLE 对象会自动替换为占位提示语 `[OLE对象，请手动复制]`，转换后请及时替换
 
 **好消息：**
 - 工具会自动检测以上问题，并在转换结束后明确提示
