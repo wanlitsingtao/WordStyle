@@ -94,7 +94,9 @@ def _load_config_from_secrets():
                 'backend_url': backend_url
             }
     except Exception as e:
-        print(f"[WARN] 读取 Streamlit Secrets 出错: {e}")
+        # 本地开发没有 secrets.toml 时正常回退到 .env/环境变量
+        if 'No secrets found' not in str(e):
+            print(f"[WARN] 读取 Streamlit Secrets 出错: {e}")
     return None
 
 # 尝试从 Streamlit Secrets 加载
@@ -161,7 +163,10 @@ MAX_FILE_SIZE_MB = 50  # 最大文件大小（MB）
 ALLOWED_EXTENSIONS = ['.docx']  # 允许的文件扩展名
 
 # ==================== 缓存配置 ====================
-CACHE_TTL_SECONDS = 5  # 缓存有效期（秒）
+# [PERF] 修复：原值 5 秒太短，Streamlit 每次 rerun 都几乎必然过期缓存导致重复请求。
+# 提高到 30 秒；用户数据写路径（转换扣额度/设为默认等）通过 data_manager.save_user_data
+# 置 user_data_stale 标记强制刷新，不存在显示旧数据的风险。
+CACHE_TTL_SECONDS = 30  # 缓存有效期（秒）
 
 # ==================== 日志配置 ====================
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")  # 日志级别
