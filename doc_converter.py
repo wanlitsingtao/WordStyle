@@ -154,6 +154,24 @@ class DocumentConverter:
             logger.addHandler(handler)
         self.logger = logger
         return logger
+
+    def iter_all_paragraphs(self, doc):
+        """遍历文档中的主体、表格和文本框段落。"""
+        paragraphs = list(doc.paragraphs)
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    paragraphs.extend(cell.paragraphs)
+        try:
+            from docx.text.paragraph import Paragraph
+            body_parent = doc.paragraphs[0]._parent if doc.paragraphs else None
+            if body_parent is not None:
+                for txbx in doc.element.body.iter(qn('w:txbxContent')):
+                    for p in txbx.findall(qn('w:p')):
+                        paragraphs.append(Paragraph(p, body_parent))
+        except Exception:
+            pass
+        return paragraphs
     
     def get_all_styles_from_doc(self, doc):
         """获取文档中使用的所有样式（包括虚拟大纲级别样式和列表段落虚拟样式）
@@ -164,7 +182,7 @@ class DocumentConverter:
             set: 样式名集合
         """
         styles = set()
-        for para in doc.paragraphs:
+        for para in self.iter_all_paragraphs(doc):
             if para.style and para.style.name:
                 styles.add(para.style.name)
         # 额外收集具有 outlineLvl 但样式为 Normal 的段落，生成虚拟大纲样式名
@@ -193,7 +211,7 @@ class DocumentConverter:
                                        '标题 1', '标题 2', '标题 3', '标题 4', '标题 5',
                                        '标题 6', '标题 7', '标题 8', '标题 9'}
         
-        for para in doc.paragraphs:
+        for para in self.iter_all_paragraphs(doc):
             para_style_name = para.style.name if para.style and para.style.name else 'Normal'
             # 如果段落已经有已知的标题样式名，跳过
             if para_style_name in actual_heading_style_names:
@@ -218,7 +236,7 @@ class DocumentConverter:
         """获取模板文档中的所有可用样式"""
         styles = set()
         for style in template_doc.styles:
-            if style.type == WD_STYLE_TYPE.PARAGRAPH:
+            if style.type == WD_STYLE_TYPE.PARAGRAPH and style.name:
                 styles.add(style.name)
         return styles
     
@@ -391,7 +409,7 @@ class DocumentConverter:
         同一种格式只出现一个虚拟样式名（不按序号区分）。
         """
         virtual_styles = set()
-        for para in doc.paragraphs:
+        for para in self.iter_all_paragraphs(doc):
             if self.has_numbering(para):
                 fmt = self._detect_numbering_format(para)
                 virtual_styles.add(fmt)
