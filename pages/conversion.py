@@ -194,8 +194,9 @@ def render_conversion_page():
         get_template_styles_list,
         detect_missing_heading_styles,
         count_template_styles,
+        count_paragraphs,
     )
-    from config import TEMPLATE_STYLE_THRESHOLD
+    from config import TEMPLATE_STYLE_THRESHOLD, TEMP_DIR
 
     from components.sidebar import render_sidebar
     render_sidebar("conversion")
@@ -243,12 +244,12 @@ def render_conversion_page():
             from doc_converter import DocumentConverter
 
             for idx, source_file in enumerate(current_source_files, 1):
-                temp_source = f"temp_source_{user_id}_{source_file.name}"
+                temp_source = str(TEMP_DIR / f"temp_source_{user_id}_{source_file.name}")
                 with open(temp_source, 'wb') as f:
                     f.write(source_file.getbuffer())
 
                 doc = Document(temp_source)
-                current_file_total = len(doc.paragraphs)
+                current_file_total = count_paragraphs(doc)
                 file_paragraph_counts[source_file.name] = current_file_total
                 total_paragraphs += current_file_total
 
@@ -280,7 +281,7 @@ def render_conversion_page():
 
                     if (para_idx + 1) % 10 == 0 or para_idx == len(doc.paragraphs) - 1:
                         completed_files_progress = (idx - 1) * (100 / total_files)
-                        current_file_progress = ((para_idx + 1) / current_file_total) * (100 / total_files)
+                        current_file_progress = ((para_idx + 1) / len(doc.paragraphs)) * (100 / total_files)
                         total_progress = completed_files_progress + current_file_progress
                         _now = time.time()
                         if total_progress >= 99.9 or _now - _last_progress_ts[0] >= 0.2:
@@ -349,7 +350,7 @@ def render_conversion_page():
         if 'template_styles' in st.session_state:
             app_state.delete_key('template_styles')
             logger.info("[REFRESH] 清除旧模板样式缓存，准备重新解析")
-        temp_template = f"temp_template_{user_id}.docx"
+        temp_template = str(TEMP_DIR / f"temp_template_{user_id}.docx")
         with open(temp_template, 'wb') as f:
             f.write(template_file.getbuffer())
         app_state.set_current_temp_template(temp_template)
@@ -467,27 +468,44 @@ def render_conversion_page():
                 status_placeholder.text("⏳ 正在验证输入...")
                 progress_bar.progress(5)
 
-            if 'file_paragraph_counts' in st.session_state and st.session_state.file_paragraph_counts:
-                file_paragraph_counts = st.session_state.file_paragraph_counts
-                file_info = [(sf.name, file_paragraph_counts[sf.name]) for sf in current_source_files]
-                total_paragraphs = sum(file_paragraph_counts.values())
-            else:
-                logger.warning("file_paragraph_counts 不存在，使用兜底逻辑重新计算")
-                from components.upload import count_paragraphs
-                total_paragraphs = 0
-                file_info = []
-                for sf in current_source_files:
-                    temp_source = f"temp_source_{user_id}_{sf.name}"
-                    paragraphs = count_paragraphs(temp_source)
-                    total_paragraphs += paragraphs
-                    file_info.append((sf.name, paragraphs))
+            # 每次点击都从当前上传对象重建临时文件并重新统计，不能复用旧缓存。
+            file_paragraph_counts = {}
+            file_info = []
+            total_paragraphs = 0
+            for source_file in current_source_files:
+                temp_source = str(TEMP_DIR / f"temp_source_{user_id}_{source_file.name}")
+                with open(temp_source, 'wb') as f:
+                    f.write(source_file.getbuffer())
+                paragraphs = count_paragraphs(temp_source)
+                file_paragraph_counts[source_file.name] = paragraphs
+                total_paragraphs += paragraphs
+                file_info.append((source_file.name, paragraphs))
+
+            app_state.set_file_paragraph_counts(file_paragraph_counts)
+
+            # 转换开始前重新读取余额，避免页面缓存导致余额不足仍可转换。
+            from data_manager import load_user_data
+            latest_user_data = load_user_data(user_id)
+            if latest_user_data:
+                user_data = latest_user_data
+                st.session_state.user_data = latest_user_data
+            remaining_paragraphs = user_data.get('paragraphs_remaining', 0)
+            if total_paragraphs > remaining_paragraphs:
+                st.session_state.is_converting = False
+                progress_bar.progress(0)
+                status_placeholder.text("[ERROR] 额度不足，已停止转换")
+                st.error(
+                    f"❌ 额度不足！本次需要 {total_paragraphs:,} 段，"
+                    f"当前剩余 {remaining_paragraphs:,} 段。"
+                )
+                st.stop()
 
             progress_bar.progress(10)
             status_placeholder.text("⏳ 准备转换...")
 
             source_files_info = []
             for fname, fpara in file_info:
-                temp_source = f"temp_source_{user_id}_{fname}"
+                temp_source = str(TEMP_DIR / f"temp_source_{user_id}_{fname}")
                 source_files_info.append((fname, temp_source, fpara))
 
             config = {
@@ -532,7 +550,7 @@ def render_conversion_page():
                     base_name = os.path.splitext(source_file_obj.name)[0]
                     output_filename = f"result_{base_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
                     output_file = os.path.join("conversion_results", output_filename)
-                    temp_source = f"temp_source_{user_id}_{source_file_obj.name}"
+                    temp_source = str(TEMP_DIR / f"temp_source_{user_id}_{source_file_obj.name}")
 
                     if not os.path.exists(temp_source):
                         logger.warning(f"临时文件 {temp_source} 不存在，从 UploadedFile 重新创建")

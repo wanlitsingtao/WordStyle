@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 class FileManager:
     """文件管理器 - 处理文件清理和查询"""
     
-    def __init__(self, base_dir: str = ".", results_dir: str = "conversion_results"):
+    def __init__(self, base_dir: str = None, results_dir: str = "conversion_results"):
         """
         初始化文件管理器
         
@@ -24,7 +24,11 @@ class FileManager:
             base_dir: 基础目录（工作目录）
             results_dir: 转换结果目录
         """
+        if base_dir is None:
+            from config import TEMP_DIR
+            base_dir = TEMP_DIR
         self.base_dir = Path(base_dir)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
         self.results_dir = self.base_dir / results_dir
         
         # 确保结果目录存在

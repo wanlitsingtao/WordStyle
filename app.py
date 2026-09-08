@@ -471,32 +471,17 @@ except Exception as e:
     logger.warning(f"维护模式检查失败（不影响服务）: {e}")
 
 
-# ==================== 多页面导航（st.navigation 函数式注册）====================
+# ==================== 单入口页面路由 ====================
 from pages.conversion import render_conversion_page
 from pages.toolbox import render_toolbox_page
 from pages.tone_config import render_tone_config_page
 from pages.comments import render_comments_page
 
-navigation_pages = {
-    "conversion": st.Page(
-        render_conversion_page, title="文档转换", icon="📄", default=True, url_path="conversion"
-    ),
-    "toolbox": st.Page(
-        render_toolbox_page, title="工具箱", icon="🛠️", url_path="toolbox"
-    ),
-    "tone_config": st.Page(
-        render_tone_config_page, title="祈使语气配置", icon="⚙️", url_path="tone-config"
-    ),
-    "comments": st.Page(
-        render_comments_page, title="用户评价", icon="💬", url_path="comments"
-    ),
+_page_renderers = {
+    "conversion": render_conversion_page,
+    "toolbox": render_toolbox_page,
+    "tone_config": render_tone_config_page,
+    "comments": render_comments_page,
 }
-from components.sidebar import configure_navigation_pages
-configure_navigation_pages(navigation_pages)
-pg = st.navigation([
-    navigation_pages["conversion"],
-    navigation_pages["toolbox"],
-    navigation_pages["tone_config"],
-    navigation_pages["comments"],
-], position="hidden")
-pg.run()
+_active_page = st.session_state.get("sidebar_active_page", "conversion")
+_page_renderers.get(_active_page, render_conversion_page)()

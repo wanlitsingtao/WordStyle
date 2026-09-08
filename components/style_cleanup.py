@@ -33,7 +33,8 @@ def render_style_cleanup():
         st.info("📤 上传模板文档后自动分析样式使用情况。")
         return
 
-    temp_path = f"temp_style_cleanup_{user_id}.docx"
+    from config import TEMP_DIR
+    temp_path = str(TEMP_DIR / f"temp_style_cleanup_{user_id}.docx")
     with open(temp_path, 'wb') as f:
         f.write(uploaded.getbuffer())
 
@@ -110,7 +111,7 @@ def render_style_cleanup():
         if not delete_ids:
             st.warning("⚠️ 未选择任何要删除的样式。")
         else:
-            out_path = f"style_cleaned_{user_id}.docx"
+            out_path = str(TEMP_DIR / f"style_cleaned_{user_id}.docx")
             try:
                 result = StyleCleaner.cleanup_styles(temp_path, out_path, delete_ids)
             except Exception as e:

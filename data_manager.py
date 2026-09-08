@@ -985,9 +985,35 @@ elif DATA_SOURCE == "api":
 
 # ==================== 统一 API ====================
 
+def _ensure_default_tone_rules(user_data: Optional[Dict[str, Any]], user_id: str = None) -> Dict[str, Any]:
+    """为没有语气规则的用户初始化并持久化默认规则。
+
+    仅补齐缺失的 _tone_rules，不覆盖已有的个性化规则。
+    """
+    if not isinstance(user_data, dict) or not user_id:
+        return user_data
+
+    style_mappings = user_data.get('style_mappings')
+    if not isinstance(style_mappings, dict):
+        style_mappings = {}
+        user_data['style_mappings'] = style_mappings
+
+    if style_mappings.get('_tone_rules'):
+        return user_data
+
+    from tone_rules_manager import ToneRulesManager
+    style_mappings['_tone_rules'] = ToneRulesManager.default_rules()
+    try:
+        _save_user(user_data, user_id)
+        logger.info(f"[OK] 已为用户 {user_id} 初始化并持久化默认语气规则")
+    except Exception as e:
+        logger.error(f"[ERROR] 用户 {user_id} 默认语气规则持久化失败: {e}")
+    return user_data
+
 def load_user_data(user_id: str) -> Optional[Dict[str, Any]]:
     """加载用户数据"""
-    return _load_user(user_id)
+    user_data = _load_user(user_id)
+    return _ensure_default_tone_rules(user_data, user_id)
 
 def save_user_data(user_data: Dict[str, Any], user_id: str = None):
     """保存用户数据"""
@@ -1095,7 +1121,8 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
     """
     # 根据不同数据源调用对应的实现
     if DATA_SOURCE == "api":
-        return _get_or_create_user_by_device(device_fingerprint, user_agent)
+        user_data = _get_or_create_user_by_device(device_fingerprint, user_agent)
+        return _ensure_default_tone_rules(user_data, user_data.get('user_id'))
     elif DATA_SOURCE == "supabase":
         # Supabase模式直接使用已有的实现
         from backend.app.core.database import SessionLocal
@@ -1136,7 +1163,7 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
                     'style_mappings': style_mappings,
                 }
                 
-                return user_data
+                return _ensure_default_tone_rules(user_data, user_data.get('user_id'))
             
             # 用户不存在，创建新用户
             user_id = hashlib.md5(f"wordstyle_device_{device_fingerprint}".encode()).hexdigest()[:12]
@@ -1157,7 +1184,7 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
             db.add(new_user)
             db.commit()
             
-            return {
+            return _ensure_default_tone_rules({
                 'user_id': user_id,
                 'balance': 0.0,
                 'paragraphs_remaining': _free_paras,
@@ -1168,12 +1195,13 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
                 'last_login': datetime.now().isoformat(),
                 'conversion_history': [],
                 'style_mappings': {},
-            }
+            }, user_id)
         finally:
             db.close()
     elif DATA_SOURCE == "local":
         # Local模式使用JSON文件存储
-        return _get_or_create_user_by_device(device_fingerprint, user_agent)
+        user_data = _get_or_create_user_by_device(device_fingerprint, user_agent)
+        return _ensure_default_tone_rules(user_data, user_data.get('user_id'))
     else:
         raise ValueError(f"未知的数据源模式: {DATA_SOURCE}")
 
