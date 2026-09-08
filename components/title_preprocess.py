@@ -108,7 +108,8 @@ def _level_to_int(level_label):
 
 def _detect(user_id, uploaded_file):
     """保存上传文件并检测标题。返回 (headings, temp_path)。"""
-    temp_path = f"temp_title_preprocess_{user_id}.docx"
+    from config import TEMP_DIR
+    temp_path = str(TEMP_DIR / f"temp_title_preprocess_{user_id}.docx")
     with open(temp_path, 'wb') as f:
         f.write(uploaded_file.getbuffer())
     headings = TitlePreprocessor.detect_headings(temp_path)
@@ -188,7 +189,8 @@ def render_title_preprocess():
         elif _title_task.running:
             st.info("⏳ 正在处理中，请稍候…")
         else:
-            out_path = f"title_preprocessed_{user_id}.docx"
+            from config import TEMP_DIR
+            out_path = str(TEMP_DIR / f"title_preprocessed_{user_id}.docx")
             gen = _title_task.start(len(selections))
 
             def _work():

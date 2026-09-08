@@ -15,7 +15,7 @@ logger = logging.getLogger('WordStyle')
 def count_paragraphs(docx_file):
     """统计文档段落数（不包括标题）"""
     try:
-        doc = Document(docx_file)
+        doc = docx_file if hasattr(docx_file, 'paragraphs') else Document(docx_file)
         paragraph_count = 0
         
         for para in doc.paragraphs:
@@ -24,9 +24,14 @@ def count_paragraphs(docx_file):
             
             # 排除所有标题样式（Heading 1-9）
             is_heading = (
-                'heading' in style_name or
-                '标题' in style_name or
-                para.style.type == WD_STYLE_TYPE.PARAGRAPH and hasattr(para, 'outline_level') and para.outline_level is not None
+                'heading' in style_name
+                or '标题' in style_name
+                or (
+                    para.style
+                    and para.style.type == WD_STYLE_TYPE.PARAGRAPH
+                    and hasattr(para, 'outline_level')
+                    and para.outline_level is not None
+                )
             )
             
             # 只统计非标题段落
@@ -66,7 +71,8 @@ def analyze_source_styles(source_files, user_id):
     
     for idx, source_file in enumerate(source_files, 1):
         # 保存临时文件
-        temp_source = f"temp_source_{user_id}_{source_file.name}"
+        from config import TEMP_DIR
+        temp_source = str(TEMP_DIR / f"temp_source_{user_id}_{source_file.name}")
         try:
             with open(temp_source, 'wb') as f:
                 f.write(source_file.getbuffer())
@@ -115,7 +121,8 @@ def detect_missing_heading_styles(source_files, user_id):
 
     result = {}
     for sf in source_files:
-        temp_source = f"temp_source_{user_id}_{sf.name}"
+        from config import TEMP_DIR
+        temp_source = str(TEMP_DIR / f"temp_source_{user_id}_{sf.name}")
         try:
             with open(temp_source, 'wb') as f:
                 f.write(sf.getbuffer())

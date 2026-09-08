@@ -11,10 +11,12 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent.absolute()
 RESULTS_DIR = BASE_DIR / "conversion_results"
 DATA_DIR = BASE_DIR / "data"
+TEMP_DIR = BASE_DIR / "temp"
 
 # 确保目录存在
 RESULTS_DIR.mkdir(exist_ok=True)
 DATA_DIR.mkdir(exist_ok=True)
+TEMP_DIR.mkdir(exist_ok=True)
 
 # ==================== 加载 .env 文件（本地开发用）====================
 try:

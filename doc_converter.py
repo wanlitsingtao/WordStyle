@@ -62,85 +62,14 @@ OUTLINE_STYLE_MAP = {
     7: "Heading 7", 8: "Heading 8", 9: "Heading 9",
 }
 
-# ==================== 祈使语气替换规则（默认值，作为"恢复默认"数据源）====================
-# [REFACTOR v2.1.0] 原 MULTI_IMPERATIVE_TO_STATEMENT 等模块级常量重命名为 DEFAULT_ 前缀，
-# 作为 ToneRulesManager 恢复默认 + DocumentConverter 无参初始化的数据源。
-# 实例级动态正则在 _build_tone_regexes() 中从 self.tone_rules 编译，不再依赖模块级正则。
-DEFAULT_MULTI_IMPERATIVE = {
-    "必须": "将", "不得": "不会", "不应": "不会", "不可": "不会",
-    "不能": "无法", "切勿": "不要", "严禁": "禁止", "请勿": "请避免",
-    "不许": "不允许",
-}
-
-DEFAULT_MULTI_EXCEPTIONS = [
-    "不可抗力", "不得已", "不由得", "不可通行", "不可开交", "不可理喻", "不可或缺",
-    "不得少于", "不得大于", "不得超过", "不得低于", "不得高于", "不得小于", "不得用于",
-    "不可否认", "不可避免", "不可逆", "不可分割",
-]
-
-DEFAULT_SINGLE_REPLACE = {"应": "将", "须": "将"}
-
-DEFAULT_EXCEPTION_WORDS_YING = [
-    "响应", "应用", "适应", "相应", "供应", "反应", "效应", "对应", "有应", "报应",
-    "呼应", "感应", "应邀", "应酬", "应允", "应声", "应景", "应试", "应变", "应付",
-    "应急", "应验", "应战", "应征", "应运", "应答", "应对", "应接", "应诺", "应求",
-    "应时", "应需",
-]
-DEFAULT_EXCEPTION_WORDS_XU = ["必须", "无须", "无需", "须知"]
-
-# "应+对"分离结构标志动词列表（原 _YING_DUI_VERBS 正则的动词列表，暴露为可配置）
-# 用于区分复合词"应对"(yìng duì = 处理/对付) 和 情态动词"应"+介词"对"(yīng + duì = 应该 + 对于)
-# 模式：应 + 对 + <名词短语> + [动词] → 类型B，不应视为例外
-DEFAULT_YING_DUI_VERBS = [
-    "负责", "进行", "予以", "加以", "负有", "承担", "提供",
-    "作出", "做出", "提交", "出示", "说明", "描述", "解释",
-    "保证", "给予", "出具", "支付", "赔偿", "归还", "返还",
-    "退回", "履行", "执行", "实施", "开展", "组织", "落实",
-    "协调", "处理", "管理", "审核", "审批",
-]
-
-DEFAULT_REPLACE_MAP = {
-    "卖方": "本投标人",
-    "投标厂商": "本投标人",
-    "投标方": "本投标人",
-    "投标商": "本投标人",
-    "请投标人": "本投标人",
-    "投标人需要": "本投标人",
-    "投标人需": "本投标人",
-    "投标人": "本投标人",
-}
-
-
-def get_default_tone_rules() -> dict:
-    """返回完整默认语气规则字典。
-
-    供 ToneRulesManager 恢复默认、DocumentConverter 无参初始化、
-    以及 components/tone_rules.py 渲染初始状态使用。
-
-    Returns:
-        dict: 完整语气规则字典，结构如下：
-            multi_imperative: {原词: 替换词}
-            single_imperative: {原词: 替换词}
-            bidder_terms: {原词: 替换词}
-            exceptions: {multi: [...], ying: [...], xu: [...]}
-            ying_dui_verbs: [...]
-    """
-    return {
-        "multi_imperative": dict(DEFAULT_MULTI_IMPERATIVE),
-        "single_imperative": dict(DEFAULT_SINGLE_REPLACE),
-        "bidder_terms": dict(DEFAULT_REPLACE_MAP),
-        "exceptions": {
-            "multi": list(DEFAULT_MULTI_EXCEPTIONS),
-            "ying": list(DEFAULT_EXCEPTION_WORDS_YING),
-            "xu": list(DEFAULT_EXCEPTION_WORDS_XU),
-        },
-        "ying_dui_verbs": list(DEFAULT_YING_DUI_VERBS),
-    }
-
-
 def build_word_pattern(word):
     """构建单词匹配正则（前后用非字母数字边界限定）"""
     return r'(?<![a-zA-Z0-9])' + re.escape(word) + r'(?![a-zA-Z0-9])'
+
+
+def build_single_imperative_pattern(word):
+    """构建单字祈使词匹配正则，允许紧跟英文字母。"""
+    return re.escape(word) + r'(?![a-zA-Z0-9])'
 
 
 def clean_list_numbering(text):
@@ -150,28 +79,6 @@ def clean_list_numbering(text):
     return cleaned
 
 
-# [BACKCOMPAT] 保留模块级正则（基于 DEFAULT_ 常量构建），供可能的外部直接引用；
-# DocumentConverter 实例方法不再使用这些模块级正则，改用 self.xxx_regex（实例级动态构建）。
-MULTI_IMPERATIVE_REGEX = re.compile('|'.join(
-    build_word_pattern(w) for w in DEFAULT_MULTI_IMPERATIVE.keys()
-))
-
-SINGLE_IMPERATIVE_REGEX = re.compile('|'.join(
-    build_word_pattern(w) for w in DEFAULT_SINGLE_REPLACE.keys()
-))
-
-REPLACE_REGEX = None
-if DEFAULT_REPLACE_MAP:
-    _replace_patterns = []
-    for word, repl in DEFAULT_REPLACE_MAP.items():
-        if word.startswith("投标人"):
-            pat = r'(?<![本])' + re.escape(word) + r'(?![a-zA-Z0-9])'
-        else:
-            pat = build_word_pattern(word)
-        _replace_patterns.append(pat)
-    REPLACE_REGEX = re.compile('|'.join(_replace_patterns))
-
-
 class DocumentConverter:
     """文档转换器主类"""
     
@@ -179,17 +86,16 @@ class DocumentConverter:
         """初始化文档转换器。
 
         Args:
-            tone_rules: 语气规则字典（结构见 get_default_tone_rules()）。
-                None 时加载默认规则（向后兼容：无参调用行为与重构前完全一致）。
-                传入用户自定义规则时，实例级正则从该规则动态编译。
+            tone_rules: 从持久化用户配置注入的语气规则字典。
+                未传入时使用空规则，不在转换器内置默认映射。
         """
         self.logger = None
         self.stats = {"para": 0, "table": 0, "heading": 0}
         self.source_styles = set()  # 源文档中使用的样式
         self.template_styles = set()  # 模板文档中的样式
         self.list_bullet = LIST_BULLET_SYMBOL  # 列表段落符号，默认为配置常量
-        # 语气规则：None → 默认；dict → 用户自定义（注入后不可变，同实例可处理多文件）
-        self.tone_rules = tone_rules if tone_rules is not None else get_default_tone_rules()
+        # 语气规则由调用方从持久化用户配置注入。
+        self.tone_rules = tone_rules if isinstance(tone_rules, dict) else {}
         self._build_tone_regexes()
 
     def _build_tone_regexes(self):
@@ -218,7 +124,7 @@ class DocumentConverter:
         single_keys = list(single_map.keys())
         self.single_replace_map = single_map
         self.single_imperative_regex = (
-            re.compile('|'.join(build_word_pattern(w) for w in single_keys))
+            re.compile('|'.join(build_single_imperative_pattern(w) for w in single_keys))
             if single_keys else None
         )
 

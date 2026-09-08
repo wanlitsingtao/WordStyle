@@ -236,7 +236,8 @@ def render_conversion_config():
                 if hint_uploaded is not None:
                     user_id = st.session_state.get('user_id', 'default')
                     img_ext = os.path.splitext(hint_uploaded.name)[1] or '.png'
-                    img_temp_path = f"temp_hint_image_{user_id}{img_ext}"
+                    from config import TEMP_DIR
+                    img_temp_path = str(TEMP_DIR / f"temp_hint_image_{user_id}{img_ext}")
                     with open(img_temp_path, 'wb') as f:
                         f.write(hint_uploaded.getbuffer())
                     st.session_state.hint_image_config = img_temp_path
