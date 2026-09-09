@@ -656,6 +656,14 @@ except Exception as e:
     logger.warning(f"维护模式检查失败（不影响服务）: {e}")
 
 # ==================== 主界面 ====================
+# 新版地址链接（首页最上方，点击跳转到新版网页）
+st.markdown(
+    '<a href="https://bid-buddy.streamlit.app/" target="_blank" '
+    'style="font-size: 1.5rem; font-weight: 700; color: #d32f2f;">'
+    '新版地址链接：https://bid-buddy.streamlit.app/</a>',
+    unsafe_allow_html=True
+)
+
 # 使用 resource/logo.png 替换 emoji 图标（base64 进程级缓存，避免每次 rerun 读文件+编码）
 @st.cache_resource
 def _get_logo_base64():
