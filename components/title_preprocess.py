@@ -120,8 +120,8 @@ def _detect(user_id, uploaded_file):
 def render_title_preprocess():
     """渲染标题预处理交互区（@st.fragment 局部刷新）。"""
     st.markdown(
-        "提取以正文格式出现的编号标题（数字编号 + 制表符 + 标题文本，如 `1.1\t线路`），"
-        "赋予对应大纲级别（Heading 1-9），生成可被样式映射识别的新文档。"
+        "提取文档中的编号标题，统一按编号层级赋予大纲级别（Heading 1-9），"
+        "生成可被样式映射识别的新文档；已具有标题样式/大纲级别的编号段落也一并按编号统一处理。"
     )
 
     user_id = st.session_state.get('user_id', 'default')

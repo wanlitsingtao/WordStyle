@@ -21,6 +21,9 @@ from docx.oxml import OxmlElement
 # 捕获组 1 = 纯数字编号（用于推断层级），组 2 = 标题正文。
 HEADING_PATTERN = re.compile(r'^\s*(\d+(?:\.\d+)*)\t([^\t]*)$')
 
+# 文本开头数字编号：用于已具有标题样式/大纲级别的段落统一按编号推断级别（如 "1.1 线路" / "1.1线路"）。
+NUMBER_PREFIX_PATTERN = re.compile(r'^\s*(\d+(?:\.\d+)*)')
+
 # 章节标题检测："第一章" / "第1章" / "第一章 概述" 等，默认大纲级别 1。
 # 捕获组 1 = 章节编号（如 "第一章"），组 2 = 标题正文。
 CHAPTER_PATTERN = re.compile(r'^\s*(第[一二三四五六七八九十百\d]+章)\s*(.*)$')
@@ -172,23 +175,25 @@ class TitlePreprocessor:
                 "detected_level": 1,
             })
 
-        # 已有标题样式 / 大纲级别的段落：全文识别，统一处理成大纲级别标题。
-        # 已出现在 headings 中的段落（编号/章节标题）跳过，避免重复。
+        # 已有标题样式 / 大纲级别的段落：也纳入识别范围，但级别统一按编号规则推断，
+        # 不再依据样式名 / outlineLvl 推断级别（真正的标题定级在文档格式转换阶段完成）。
         seen_idx = {h["index"] for h in headings}
         for idx, para in enumerate(doc.paragraphs):
             if idx in seen_idx:
                 continue
-            level = TitlePreprocessor._existing_heading_level(para)
-            if not level:
+            if not TitlePreprocessor._is_existing_heading(para):
                 continue
             text = para.text.strip()
             if not text or len(text) > 60:
                 continue
+            number = TitlePreprocessor._extract_number_prefix(text)
+            if number is None:
+                continue
             headings.append({
                 "index": idx,
                 "text": text,
-                "number": "",
-                "detected_level": level,
+                "number": number,
+                "detected_level": TitlePreprocessor.infer_level(number),
             })
 
         # 按段落索引排序，保持文档顺序
@@ -196,15 +201,14 @@ class TitlePreprocessor:
         return headings
 
     @staticmethod
-    def _existing_heading_level(paragraph) -> Optional[int]:
-        """返回段落已有的大纲级别（1-9）；非标题段落返回 None。
+    def _is_existing_heading(paragraph) -> bool:
+        """判断段落是否已具有标题样式（Heading N / 标题 N）或大纲级别。
 
-        优先按样式名（Heading N / 标题 N），其次按 w:outlineLvl。
+        仅用于识别“已是标题”的段落，不再据此推断级别。
         """
         if paragraph.style is not None and paragraph.style.name:
-            level = HEADING_STYLE_LEVELS.get(paragraph.style.name.lower())
-            if level:
-                return level
+            if HEADING_STYLE_LEVELS.get(paragraph.style.name.lower()):
+                return True
         pPr = paragraph._p.find(qn('w:pPr'))
         if pPr is not None:
             outline = pPr.find(qn('w:outlineLvl'))
@@ -214,10 +218,16 @@ class TitlePreprocessor:
                     try:
                         level = int(val) + 1
                         if 1 <= level <= 9:
-                            return level
+                            return True
                     except ValueError:
                         pass
-        return None
+        return False
+
+    @staticmethod
+    def _extract_number_prefix(text: str) -> Optional[str]:
+        """按统一编号规则提取文本开头的数字编号；无编号返回 None。"""
+        m = NUMBER_PREFIX_PATTERN.match(text)
+        return m.group(1) if m else None
 
     @staticmethod
     def _set_outline_level(paragraph, level: int) -> None:
