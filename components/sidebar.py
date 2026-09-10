@@ -10,6 +10,7 @@ from pathlib import Path
 import streamlit as st
 
 from state import app_state
+from ui_theme import title_style, FONT_VAR_APP_TITLE
 
 logger = logging.getLogger('WordStyle')
 _NAVIGATION_PAGES = {}
@@ -167,7 +168,7 @@ def render_sidebar(active_page: str = "conversion"):
             background: rgba(255,255,255,0.62);
             border: 1px solid rgba(148,163,184,0.22);
             color: #334155;
-            font-size: 0.98rem;
+            font-size: var(--ws-font-nav, 0.98rem);
             font-weight: 500;
             padding: 0.7rem 0.8rem;
             text-decoration: none;
@@ -227,7 +228,7 @@ def render_sidebar(active_page: str = "conversion"):
             border-radius: 10px;
             padding: 0.45rem 0.6rem;
             text-align: center;
-            font-size: 0.88rem;
+            font-size: var(--ws-font-mini, 0.88rem);
             color: #334155;
             margin: 0.2rem 0.2rem 0 0;
         }
@@ -235,7 +236,7 @@ def render_sidebar(active_page: str = "conversion"):
             white-space: nowrap;
         }
         [data-testid="stSidebar"] [data-testid="stMetricValue"] {
-            font-size: 1.25rem;
+            font-size: var(--ws-font-kpi-value, 1.25rem);
         }
         [data-testid="stSidebar"] .sidebar-kpi-grid {
             display: grid;
@@ -252,7 +253,7 @@ def render_sidebar(active_page: str = "conversion"):
         }
         [data-testid="stSidebar"] .sidebar-kpi-label {
             color: #64748b;
-            font-size: 0.72rem;
+            font-size: var(--ws-font-kpi-label, 0.72rem);
             line-height: 1.25;
             white-space: nowrap;
             overflow: hidden;
@@ -260,7 +261,7 @@ def render_sidebar(active_page: str = "conversion"):
         }
         [data-testid="stSidebar"] .sidebar-kpi-value {
             color: #172b4d;
-            font-size: 1.25rem;
+            font-size: var(--ws-font-kpi-value, 1.25rem);
             font-weight: 700;
             line-height: 1.2;
             margin-top: 0.2rem;
@@ -276,7 +277,7 @@ def render_sidebar(active_page: str = "conversion"):
             gap: 0.45rem;
             margin: 0 0 0.55rem 0.1rem;
             color: #334155;
-            font-size: 0.95rem;
+            font-size: var(--ws-font-mini-title, 0.95rem);
             font-weight: 700;
             letter-spacing: 0.04em;
             text-transform: uppercase;
@@ -299,7 +300,7 @@ def render_sidebar(active_page: str = "conversion"):
             st.markdown(
                 f'''<div style="display:flex;align-items:center;gap:8px;margin:0 0 0.8rem 0;">
                 <img src="data:image/png;base64,{logo_b64}" style="height:2.2rem;width:auto;">
-                <span style="font-size:1.35rem;font-weight:700;color:#262730;white-space:nowrap;">标书编写神器</span>
+                <span style="{title_style(FONT_VAR_APP_TITLE)}white-space:nowrap;">标书编写神器</span>
                 </div>''',
                 unsafe_allow_html=True,
             )
@@ -307,7 +308,7 @@ def render_sidebar(active_page: str = "conversion"):
         _logged_in_name = st.session_state.get('logged_in_username', None)
         _user_label = _logged_in_name or "游客"
         st.markdown('<div class="user-card">', unsafe_allow_html=True)
-        st.markdown(f"<div style='display:flex;align-items:center;gap:10px;font-size:1.02rem;font-weight:700;color:#1f2937;'><span style='display:inline-flex;width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#8b5cf6);color:white;align-items:center;justify-content:center;font-size:0.9rem;'>U</span> {_user_label}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='display:flex;align-items:center;gap:10px;font-size:var(--ws-font-nav, 0.98rem);font-weight:700;color:#1f2937;'><span style='display:inline-flex;width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#4f46e5,#8b5cf6);color:white;align-items:center;justify-content:center;font-size:0.9rem;'>U</span> {_user_label}</div>", unsafe_allow_html=True)
         st.caption(f"用户ID: {app_state.get_user_id()[:12]}...")
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -522,11 +523,11 @@ def render_sidebar(active_page: str = "conversion"):
         with col2:
             st.markdown('<div style="text-align: center; white-space: nowrap;">', unsafe_allow_html=True)
             st.markdown(
-                f'<p style="text-align: center; margin: 0.5rem 0 0 0; color: #666; font-size: 0.875rem;">标书编写神器{APP_VERSION}</p>',
+                f'<p style="text-align: center; margin: 0.5rem 0 0 0; color: #666; font-size: var(--ws-font-footer, 0.875rem);">标书编写神器{APP_VERSION}</p>',
                 unsafe_allow_html=True
             )
             st.markdown(
-                '<p style="text-align: center; margin: 0.25rem 0 0 0; color: #666; font-size: 0.75rem; white-space: nowrap;">© 2026 文档转换工具 保留所有权利</p>',
+                '<p style="text-align: center; margin: 0.25rem 0 0 0; color: #666; font-size: var(--ws-font-small, 0.75rem); white-space: nowrap;">© 2026 文档转换工具 保留所有权利</p>',
                 unsafe_allow_html=True
             )
             st.markdown('</div>', unsafe_allow_html=True)

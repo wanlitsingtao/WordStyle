@@ -8,6 +8,7 @@ import logging
 import streamlit as st
 
 from state import app_state
+from ui_theme import render_section_title
 
 logger = logging.getLogger('WordStyle')
 
@@ -31,7 +32,7 @@ def _render_test_section(rules):
     from tone_rules_manager import ToneRulesManager
 
     st.markdown("---")
-    st.markdown("### 🧪 转换测试")
+    render_section_title("🧪 转换测试")
     test_text = st.text_area(
         "输入文本",
         placeholder="例如：投标人必须理解并应对招标文件中的要求负责。",

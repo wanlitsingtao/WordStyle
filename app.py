@@ -36,6 +36,16 @@ st.set_page_config(
 )
 
 # ==================== 全局视觉主题 ====================
+# 统一字号规范：所有字号集中定义在 ui_theme.py，此处注入 :root CSS 变量。
+# 页面 / 组件统一使用 var(--ws-font-*) 引用，改 ui_theme.py 一处即全站生效。
+import os as _os
+import sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+
+from ui_theme import root_style_tag
+
+st.markdown(root_style_tag(), unsafe_allow_html=True)
+
 # 保持业务组件不变，仅统一页面层级、留白和控件状态，形成现代办公风格。
 st.markdown(
     """
@@ -65,55 +75,65 @@ st.markdown(
             padding-bottom: 3rem;
         }
         h1, h2, h3 {
-            color: var(--office-ink);
-            letter-spacing: -0.02em;
+            color: #262730;
         }
         h1 {
-            font-size: clamp(1.8rem, 3vw, 2.5rem) !important;
+            font-size: var(--ws-font-h1) !important;
             font-weight: 750 !important;
+            letter-spacing: -0.02em;
             margin-bottom: 0.35rem !important;
         }
         h2, h3 {
             font-weight: 700 !important;
         }
-        /* 主区域控件提示采用更紧凑的办公界面字号，侧边栏保持原有层级。 */
-        [data-testid="stAppViewContainer"] main h2 {
-            font-size: 1.12rem !important;
-            margin-top: 1.15rem !important;
+        /* 区块标题（上传源文档 / 上传模板文档 / 多字祈使词替换……）
+           渲染参数完全对齐侧边栏主标题「标书编写神器」：
+           同字号（--ws-font-section = --ws-font-app-title）、同色 #262730、
+           同字重 700、同行高 1.2、零字距。改 ui_theme.py 的
+           FONT_SIZE_APP_TITLE 一处即同步。
+           注：Streamlit ≥1.36 的主内容容器是 [data-testid="stMain"]
+           （旧版本为 <main>），此前写成 main h3 导致规则从未生效。 */
+        [data-testid="stMain"] h2,
+        [data-testid="stMain"] h3,
+        [data-testid="stMain"] [data-testid="stHeading"] h2,
+        [data-testid="stMain"] [data-testid="stHeading"] h3,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] h2,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] h3 {
+            color: #262730 !important;
+            font-size: var(--ws-font-section, 1.4rem) !important;
+            font-weight: 700 !important;
+            line-height: 1.2 !important;
+            letter-spacing: 0 !important;
+            margin-top: 1.05rem !important;
             margin-bottom: 0.45rem !important;
         }
-        [data-testid="stAppViewContainer"] main h3 {
-            font-size: 0.98rem !important;
-            margin-top: 0.95rem !important;
-            margin-bottom: 0.35rem !important;
+        /* h1 in stHeading / markdown：极少使用，保留独立大字号。 */
+        [data-testid="stMain"] [data-testid="stHeading"] h1,
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] h1 {
+            color: #262730 !important;
+            font-size: var(--ws-font-h1) !important;
+            font-weight: 750 !important;
+            line-height: 1.2 !important;
         }
-        [data-testid="stAppViewContainer"] main [data-testid="stHeading"] h1,
-        [data-testid="stAppViewContainer"] main [data-testid="stHeading"] h2,
-        [data-testid="stAppViewContainer"] main [data-testid="stHeading"] h3,
-        [data-testid="stAppViewContainer"] main [data-testid="stMarkdownContainer"] h1,
-        [data-testid="stAppViewContainer"] main [data-testid="stMarkdownContainer"] h2,
-        [data-testid="stAppViewContainer"] main [data-testid="stMarkdownContainer"] h3 {
-            color: var(--office-ink) !important;
-            font-size: 1rem !important;
-            font-weight: 650 !important;
-            line-height: 1.25 !important;
-            margin-top: 0.85rem !important;
-            margin-bottom: 0.35rem !important;
-        }
-        [data-testid="stAppViewContainer"] main [data-testid="stWidgetLabel"] label,
-        [data-testid="stAppViewContainer"] main [data-testid="stFileUploaderDropzone"] span,
-        [data-testid="stAppViewContainer"] main [data-testid="stFileUploaderDropzone"] small {
-            font-size: 0.78rem !important;
+        [data-testid="stMain"] [data-testid="stWidgetLabel"] label {
+            font-size: var(--ws-font-label, 0.875rem) !important;
             line-height: 1.35 !important;
         }
-        [data-testid="stAppViewContainer"] main [data-testid="stCaptionContainer"],
-        [data-testid="stAppViewContainer"] main [data-testid="stMarkdownContainer"] p {
-            font-size: 0.78rem;
+        [data-testid="stMain"] [data-testid="stFileUploaderDropzone"] span,
+        [data-testid="stMain"] [data-testid="stFileUploaderDropzone"] small {
+            font-size: var(--ws-font-caption, 0.875rem) !important;
+            line-height: 1.35 !important;
+        }
+        [data-testid="stMain"] [data-testid="stCaptionContainer"] {
+            font-size: var(--ws-font-caption, 0.875rem);
+        }
+        [data-testid="stMain"] [data-testid="stMarkdownContainer"] p {
+            font-size: var(--ws-font-body, 1rem);
             line-height: 1.45;
         }
-        [data-testid="stAppViewContainer"] main .stButton > button,
-        [data-testid="stAppViewContainer"] main .stDownloadButton > button {
-            font-size: 0.82rem;
+        [data-testid="stMain"] .stButton > button,
+        [data-testid="stMain"] .stDownloadButton > button {
+            font-size: var(--ws-font-button, 0.875rem);
         }
         [data-testid="stCaptionContainer"] {
             color: var(--office-muted);
@@ -418,7 +438,7 @@ try:
         margin-bottom: 0 !important;
         max-width: 100% !important;
     }
-    main {
+    [data-testid="stMain"] {
         padding-top: 0 !important;
         margin-top: 0 !important;
         display: block !important;

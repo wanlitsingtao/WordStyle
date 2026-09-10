@@ -12,6 +12,7 @@ from pathlib import Path
 import streamlit as st
 
 from state import app_state
+from ui_theme import render_section_title
 
 logger = logging.getLogger('WordStyle')
 
@@ -207,7 +208,7 @@ def render_conversion_page():
     user_id = app_state.get_user_id()
 
     # ==================== 上传源文档 ====================
-    st.subheader("📄 上传源文档")
+    render_section_title("📄 上传源文档")
     source_files = st.file_uploader(
         "选择要转换的 Word 文档（支持 .docx，可多选）",
         type=['docx'],
@@ -338,7 +339,7 @@ def render_conversion_page():
             logger.warning(f"标题样式检测失败: {e}")
 
     # ==================== 上传模板文档 ====================
-    st.subheader("📋 上传模板文档")
+    render_section_title("📋 上传模板文档")
     template_file = st.file_uploader(
         "选择模板文档（支持 .docx）",
         type=['docx'],
@@ -399,7 +400,7 @@ def render_conversion_page():
 
     # ==================== 转换配置 ====================
     st.markdown("---")
-    st.subheader("⚙️ 转换配置")
+    render_section_title("⚙️ 转换配置")
     _load_user_defaults()
 
     if 'do_mood_config' not in st.session_state:
@@ -789,7 +790,7 @@ def render_conversion_page():
             else:
                 st.error(f"❌ {result['name']} 转换失败: {result.get('msg', '')}")
 
-        st.subheader("📥 下载转换结果")
+        render_section_title("📥 下载转换结果")
         for idx, file_info in enumerate(st.session_state.get('recent_results', [])):
             if os.path.exists(file_info['path']):
                 with open(file_info['path'], 'rb') as f:

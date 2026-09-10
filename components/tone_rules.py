@@ -14,6 +14,8 @@ import logging
 
 import streamlit as st
 
+from ui_theme import render_section_title
+
 logger = logging.getLogger('WordStyle')
 
 
@@ -96,25 +98,25 @@ def render_tone_rules_editor(rules):
         rules = {}
 
     # 1. 多字祈使词替换
-    st.markdown("### ▸ 多字祈使词替换")
+    render_section_title("▸ 多字祈使词替换")
     rules = _render_mapping_editor(rules, "multi_imperative", "tone_editor_multi", "多字祈使词替换")
 
     st.markdown("---")
 
     # 2. 单字祈使词替换
-    st.markdown("### ▸ 单字祈使词替换")
+    render_section_title("▸ 单字祈使词替换")
     rules = _render_mapping_editor(rules, "single_imperative", "tone_editor_single", "单字祈使词替换")
 
     st.markdown("---")
 
     # 3. 投标人称谓替换
-    st.markdown("### ▸ 投标人称谓替换")
+    render_section_title("▸ 投标人称谓替换")
     rules = _render_mapping_editor(rules, "bidder_terms", "tone_editor_bidder", "投标人称谓替换")
 
     st.markdown("---")
 
     # 4. 例外词列表（3 组）
-    st.markdown("### ▸ 例外词列表")
+    render_section_title("▸ 例外词列表")
     exceptions = rules.setdefault("exceptions", {})
     if not isinstance(exceptions, dict):
         exceptions = {}
@@ -137,7 +139,7 @@ def render_tone_rules_editor(rules):
     st.markdown("---")
 
     # 5. "应+对"分离结构标志动词
-    st.markdown("### ▸ 应+对分离结构标志动词")
+    render_section_title("▸ 应+对分离结构标志动词")
     _render_list_editor(rules, "ying_dui_verbs", "tone_editor_verbs",
                         "标志动词（每行一个词）",
                         "用于检测「应+对+动词」分离结构（如「应对…负责」），避免误替换")

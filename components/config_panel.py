@@ -96,7 +96,7 @@ def render_conversion_config():
         }
         /* 拖拽区内的提示文字：缩小并单行截断 */
         div[data-testid="column"] [data-testid="stFileUploaderDropzone"] span {
-            font-size: 0.65rem !important;
+            font-size: var(--ws-font-tiny, 0.65rem) !important;
             line-height: 1.1 !important;
             white-space: nowrap !important;
             overflow: hidden !important;
