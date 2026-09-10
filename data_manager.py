@@ -1125,7 +1125,9 @@ def get_or_create_user_by_device(device_fingerprint: str, user_agent: str = None
         return _ensure_default_tone_rules(user_data, user_data.get('user_id'))
     elif DATA_SOURCE == "supabase":
         # Supabase模式直接使用已有的实现
-        from backend.app.core.database import SessionLocal
+        # [PERF] 统一使用 app.core.database.SessionLocal（与模块级第139行一致），
+        # 避免 backend.app.core.database 二次导入导致重复创建引擎/连接池。
+        from app.core.database import SessionLocal
         from datetime import datetime
         import hashlib
         
@@ -1325,7 +1327,14 @@ def _get_supabase_engine():
         from sqlalchemy import create_engine
 
         # 保留 Supabase pooler 连接串（6543）；不要把 pooler 主机改成直连主机。
-        _supabase_engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        # [PERF] connect_timeout 快速失败 + pool_recycle 对齐 pgbouncer 空闲回收，
+        # 避免 Supabase 不可达/僵尸连接导致首页无限期挂起。
+        _supabase_engine = create_engine(
+            DATABASE_URL,
+            connect_args={"connect_timeout": 10},
+            pool_pre_ping=True,
+            pool_recycle=300,
+        )
     return _supabase_engine
 
 

@@ -22,9 +22,16 @@ elif settings.DATABASE_URL.startswith("postgresql"):
     # PgBouncer 在 Supabase 免费套餐中可能将写操作路由到只读副本，导致 ReadOnlySqlTransaction
     # 直连模式更可靠
     logger.info(f"[OK] PostgreSQL 直连模式: {final_url[:60]}...")
+    # [PERF] 连接超时：Supabase 不可达/慢时快速失败，避免首页无限期挂起
+    connect_args = {"connect_timeout": 10}
 
 logger.info(f"[LINK] 数据库引擎创建 - URL: {final_url[:60]}...")
-engine = create_engine(final_url, connect_args=connect_args)
+engine = create_engine(
+    final_url,
+    connect_args=connect_args,
+    pool_pre_ping=True,   # [PERF] 复用前探活，避免 pgbouncer 回收后的僵尸连接挂起
+    pool_recycle=300,     # [PERF] 5 分钟回收，对齐 Supabase pgbouncer 空闲回收
+)
 
 # 创建会话工厂
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
