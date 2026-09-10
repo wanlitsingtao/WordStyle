@@ -8,7 +8,7 @@
 - 例外词 / 标志动词用"每行一个词"的文本域编辑。
 
 组件为纯渲染函数，返回用户当前编辑后的规则字典（工作副本），
-持久化由 pages/tone_config.py 负责。
+持久化由 views/tone_config.py 负责。
 """
 import logging
 

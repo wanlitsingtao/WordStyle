@@ -3,10 +3,10 @@
 标书编写神器 - 应用入口（多页面导航壳）
 
 使用 st.navigation 函数式注册 4 个页面：
-- 文档转换      → pages/conversion.py   (render_conversion_page)
-- 工具箱        → pages/toolbox.py      (render_toolbox_page)
-- 祈使语气配置  → pages/tone_config.py  (render_tone_config_page)
-- 用户评价      → pages/comments.py     (render_comments_page)
+- 文档转换      → views/conversion.py   (render_conversion_page)
+- 工具箱        → views/toolbox.py      (render_toolbox_page)
+- 祈使语气配置  → views/tone_config.py  (render_tone_config_page)
+- 用户评价      → views/comments.py     (render_comments_page)
 
 本文件仅负责：全局页面配置、后台服务、用户初始化、维护模式、导航注册。
 """
@@ -492,10 +492,10 @@ except Exception as e:
 
 
 # ==================== 单入口页面路由 ====================
-from pages.conversion import render_conversion_page
-from pages.toolbox import render_toolbox_page
-from pages.tone_config import render_tone_config_page
-from pages.comments import render_comments_page
+from views.conversion import render_conversion_page
+from views.toolbox import render_toolbox_page
+from views.tone_config import render_tone_config_page
+from views.comments import render_comments_page
 
 _page_renderers = {
     "conversion": render_conversion_page,
@@ -505,7 +505,7 @@ _page_renderers = {
 }
 
 # 用 st.navigation(position="hidden") 在服务端注册页面并隐藏默认导航，
-# 避免 pages/ 目录触发 Streamlit 自动导航（不依赖启动目录/config.toml）。
+# 避免 views/ 目录触发 Streamlit 自动导航（不依赖启动目录/config.toml）。
 # 页面切换仍由自定义侧边栏 st.radio（sidebar_active_page）驱动。
 st.navigation(
     [
@@ -517,7 +517,7 @@ st.navigation(
     position="hidden",
 )
 
-# 兜底隐藏：项目仍保留 pages/ 目录（供导入），此处再隐藏默认导航，双保险。
+# 兜底隐藏：项目仍保留 views/ 目录（供导入），此处再隐藏默认导航，双保险。
 st.markdown(
     """
     <style>
