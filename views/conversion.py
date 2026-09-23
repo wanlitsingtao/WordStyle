@@ -216,9 +216,14 @@ def render_conversion_page():
         accept_multiple_files=True,
         key="source_uploader",
     )
-    if source_files:
-        app_state.set_current_source_files(list(source_files))
+    # 无条件同步：清空文件时也要同步清空 current_source_files，避免解析结果残留
+    app_state.set_current_source_files(list(source_files) if source_files else [])
     current_source_files = app_state.get_current_source_files()
+
+    if not current_source_files:
+        # 已清空全部上传文件，清理源文档解析缓存，确保内存不残留旧文件的解析内容
+        for key in ('file_styles_map', 'file_paragraph_counts', 'source_styles'):
+            app_state.delete_key(key)
 
     if current_source_files:
         need_analyze = False
@@ -356,6 +361,11 @@ def render_conversion_page():
             f.write(template_file.getbuffer())
         app_state.set_current_temp_template(temp_template)
         app_state.set_last_template_name(template_file.name)
+    else:
+        # 模板文件被清空：清理模板路径状态与解析缓存，避免残留旧解析信息
+        for key in ('template_styles', 'current_temp_template', 'last_template_name'):
+            app_state.delete_key(key)
+        logger.info("[REFRESH] 模板文件已清空，清理模板解析缓存")
 
     current_temp_template = app_state.get_current_temp_template()
     last_template_name = app_state.get_last_template_name()
@@ -375,7 +385,7 @@ def render_conversion_page():
             template_status_text.text("正在提取所有段落样式...")
             template_styles_list = get_template_styles_list(current_temp_template)
             template_progress_bar.progress(1.0)
-            template_status_text.text(f"[OK] 已提取 {len(template_styles_list)} 种样式！")
+            template_status_text.text(f"[OK] 已提取 {len(template_styles_list)} 个可选目标（样式 + 格式变体）！")
             app_state.set_template_styles(template_styles_list)
             app_state.set_last_template_name(last_template_name)
         else:
@@ -383,9 +393,14 @@ def render_conversion_page():
             template_status_text.text("[OK] 已分析完成（使用缓存）")
 
         template_styles = app_state.get_template_styles() or []
-        with st.expander(f"📋 模板文档信息：{os.path.basename(current_temp_template)} | {len(template_styles)}种样式", expanded=True):
+        with st.expander(f"📋 模板文档信息：{os.path.basename(current_temp_template)} | {len(template_styles)} 个可选目标", expanded=True):
             st.markdown(f"**✅ 已上传:** {os.path.basename(current_temp_template)}")
-            st.markdown(f"**📋 检测到样式:** {len(template_styles)} 种 - {', '.join(template_styles[:10])}{'...' if len(template_styles) > 10 else ''}")
+            st.markdown(f"**📋 检测到可选目标:** {len(template_styles)} 个 - {', '.join(template_styles[:10])}{'...' if len(template_styles) > 10 else ''}")
+            st.caption(
+                "提示：列表中形如「标题 1 + 四号, 段前: 0 磅, 段后: 0 磅, 行距: 1.5 倍行距」的条目，"
+                "是模板段落上的「样式 + 直接格式」组合（Word 样式窗格里也能看到）。"
+                "选中它作为目标时，转换后会与该示范段落格式保持一致。"
+            )
 
         # P1-2：模板样式过多引导提示
         try:
@@ -575,11 +590,15 @@ def render_conversion_page():
                     file_mapping = None
                     file_tbl_img_config = {}
                     file_list_config = {}
+                    # [2026-09-19] 标题编号清理开关（Step 1「清理编号」复选框），
+                    # 与样式映射同为「文件级 → 默认集」两级回退；都没有时空表 = 全部清理。
+                    file_clean_numbering = {}
                     if 'file_style_mappings' in st.session_state and source_file_obj.name in st.session_state.file_style_mappings:
                         file_mapping_data = st.session_state.file_style_mappings[source_file_obj.name]
                         file_mapping = {k: v for k, v in file_mapping_data.items() if not k.startswith('_')}
                         file_tbl_img_config = file_mapping_data.get('_table_image_style', {})
                         file_list_config = file_mapping_data.get('_list_config', {})
+                        file_clean_numbering = file_mapping_data.get('_clean_numbering') or {}
 
                     if not file_mapping:
                         default_style_map = st.session_state.file_style_mappings.get('_default_style_map', {})
@@ -592,6 +611,8 @@ def render_conversion_page():
                         file_tbl_img_config = st.session_state.file_style_mappings.get('_default_tbl_img_config', {})
                     if not file_list_config:
                         file_list_config = st.session_state.file_style_mappings.get('_default_list_config', {})
+                    if not file_clean_numbering:
+                        file_clean_numbering = st.session_state.file_style_mappings.get('_default_clean_numbering', {}) or {}
 
                     warnings_list = []
                     def warning_callback(msg):
@@ -655,6 +676,7 @@ def render_conversion_page():
                         enable_image_style=file_tbl_img_config.get('enable_image_style', st.session_state.get('enable_image_style_config', False)),
                         remove_chapter_label=remove_chapter_label,
                         enable_list_style=_enable_list_style,
+                        clean_numbering_map=file_clean_numbering,
                     )
 
                     if success:
