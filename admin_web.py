@@ -286,7 +286,7 @@ def show_user_management():
                 user_data.append({
                     "用户ID": user.get('user_id', '-'),
                     "剩余段落": user.get('paragraphs_remaining', 0),
-                    "已用段落": user.get('total_paragraphs_used', 0),
+                    "已用段落": user.get('paragraphs_used', 0),
                     "总转换数": user.get('total_converted', 0),
                     "余额": user.get('balance', 0.0),
                     "状态": "✅ 活跃" if user.get('is_active', True) else "❌ 禁用",

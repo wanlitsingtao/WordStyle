@@ -390,7 +390,7 @@ def load_all_users_data():
                     'user_id': user_id,
                     'balance': user_data.get('balance', 0),
                     'paragraphs_remaining': user_data.get('paragraphs_remaining', 0),
-                    'total_paragraphs_used': user_data.get('total_paragraphs_used', 0),
+                    'paragraphs_used': user_data.get('paragraphs_used', 0),
                     'total_converted': user_data.get('total_converted', 0),
                     'is_active': user_data.get('is_active', True),
                     'created_at': user_data.get('created_at', ''),

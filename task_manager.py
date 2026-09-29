@@ -308,7 +308,7 @@ def register_or_login_user(user_id, user_data):
                 user_data.get('balance', 0.0),
                 user_data.get('paragraphs_remaining', 0),
                 user_data.get('total_converted', 0),
-                user_data.get('total_paragraphs_used', 0),
+                user_data.get('paragraphs_used', 0),
                 user_id
             ))
         else:
@@ -324,7 +324,7 @@ def register_or_login_user(user_id, user_data):
                 user_data.get('balance', 0.0),
                 user_data.get('paragraphs_remaining', 0),
                 user_data.get('total_converted', 0),
-                user_data.get('total_paragraphs_used', 0)
+                user_data.get('paragraphs_used', 0)
             ))
         
         conn.commit()
