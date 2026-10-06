@@ -22,6 +22,12 @@ elif settings.DATABASE_URL.startswith("postgresql"):
     # PgBouncer 在 Supabase 免费套餐中可能将写操作路由到只读副本，导致 ReadOnlySqlTransaction
     # 直连模式更可靠
     logger.info(f"[OK] PostgreSQL 直连模式: {final_url[:60]}...")
+    # [FIX 2026-10-06] SQLAlchemy 2.x 对 postgresql:// 默认改用 psycopg3 驱动，
+    # 而云端 requirements 只装 psycopg2-binary → ModuleNotFoundError: No module named 'psycopg'
+    # 且 data_manager 初始化失败后静默回退 local。URL 未显式指定驱动时固定用 psycopg2。
+    if final_url.startswith("postgresql://"):
+        final_url = "postgresql+psycopg2://" + final_url[len("postgresql://"):]
+        logger.info("[FIX] PostgreSQL URL 已固定驱动 psycopg2")
     # [PERF] 连接超时：Supabase 不可达/慢时快速失败，避免首页无限期挂起
     connect_args = {"connect_timeout": 10}
     # [FIX 2026-10-06] Supabase（尤其是 pooler 6543 / 直连 5432）要求 SSL；
