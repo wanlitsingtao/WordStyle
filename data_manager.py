@@ -1333,6 +1333,11 @@ def _get_supabase_engine():
         # [FIX 2026-10-06] Supabase 要求 SSL；DATABASE_URL 未写 sslmode 时自动补全，
         # 否则连接会被拒绝/握手失败，data_manager 初始化时回退到 local。
         url = DATABASE_URL
+        # [FIX 2026-10-06] SQLAlchemy 2.x 对 postgresql:// 默认走 psycopg3，
+        # 环境里只装 psycopg2-binary 时会 ModuleNotFoundError: No module named 'psycopg'
+        # → 固定驱动为 psycopg2（与 backend/app/core/database.py 同一修法）。
+        if url and url.startswith("postgresql://"):
+            url = "postgresql+psycopg2://" + url[len("postgresql://"):]
         if url and url.startswith("postgresql") \
                 and ("supabase" in url.lower() or "pooler.supabase" in url.lower()) \
                 and "sslmode=" not in url.lower():
