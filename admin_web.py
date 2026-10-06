@@ -35,6 +35,7 @@ except Exception:
 sys.path.insert(0, os.path.dirname(__file__))
 
 # 使用统一数据访问层（支持双模式）
+import data_manager  # 供下方诊断面板读取 DATA_SOURCE_INIT_ERROR
 from data_manager import (
     get_all_tasks,
     get_task_stats,
