@@ -69,6 +69,15 @@ st.markdown(
         [data-testid="stHeader"] {
             background: rgba(245, 247, 251, 0.86);
         }
+        /* 隐藏 Streamlit Cloud 宿主动态注入的「✏️编辑应用 / 🐙GitHub 源码」按钮。
+           它们不是 app 代码渲染的，而是宿主通过 hostToolbarItems 推给前端、
+           渲染进 [data-testid="stToolbarActions"] 容器，因此只能从 CSS 层面隐藏。
+           注：不要整块隐藏 [data-testid="stToolbar"] —— 侧边栏折叠后的
+           「展开侧边栏」按钮（stExpandSidebarButton）也在其中，会被一并隐藏。 */
+        [data-testid="stToolbarActions"],
+        [data-testid="stToolbarActionButton"] {
+            display: none !important;
+        }
         div.block-container {
             max-width: 1440px;
             padding-top: 2.6rem;
