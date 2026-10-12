@@ -713,7 +713,15 @@ st.markdown("""
 <style>
     /* 隐藏页脚 */
     footer {visibility: hidden;}
-    
+
+    /* [FIX 2026-10-12] 隐藏 Streamlit Community Cloud 宿主注入的「编辑 / GitHub」按钮。
+       这两个按钮来自云端宿主的 hostToolbarItems，会渲染进 [data-testid="stToolbarActions"]，
+       点击后指向公开的 GitHub 源码仓库，属于对外暴露的入口。
+       注意：只隐藏这个按钮容器，不要隐藏整个 stToolbar —— 否则侧边栏被折叠后，
+       「展开侧边栏」按钮（stExpandSidebarButton 也在 stToolbar 内）会一起消失。 */
+    [data-testid="stToolbarActions"] {display: none !important;}
+    [data-testid="stToolbarActionButton"] {display: none !important;}
+
     /* 强制主要内容区域使用最大宽度 */
     .block-container {
         max-width: 100% !important;
