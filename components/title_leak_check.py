@@ -34,6 +34,11 @@ def render_title_leak_check():
     )
 
     if uploaded is None:
+        # 文档被移除（用户点了上传框的删除）：连同筛选状态一起清空。
+        # 否则下次上传新文档时，会沿用上一份文档的「只看异常 / 所选级别」。
+        # 此刻筛选控件尚未渲染，写 session_state 不会被 widget 状态覆盖。
+        for _k in ("_tlc_sig", "_tlc_items", "tlc_only_leak", "tlc_level_filter"):
+            st.session_state.pop(_k, None)
         st.info("📤 上传源文档后自动检查标题格式。")
         return
 
@@ -73,6 +78,14 @@ def render_title_leak_check():
 
         st.session_state["_tlc_sig"] = sig
         st.session_state["_tlc_items"] = items
+
+        # 换文档（或引擎升级）后筛选条件回到默认：不只看异常 + 级别全选 = 全部显示。
+        # 必须写在筛选控件渲染之前（此时 widget 尚未实例化，写 session_state 才生效）；
+        # fragment 局部重跑不走这里，因此用户在本文件内的筛选不会被重置。
+        st.session_state["tlc_only_leak"] = False
+        st.session_state["tlc_level_filter"] = [
+            "H%d" % n for n in sorted({int(it["detected_level"]) for it in items})
+        ]
 
     items = st.session_state["_tlc_items"]
 
