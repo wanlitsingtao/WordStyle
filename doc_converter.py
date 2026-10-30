@@ -695,13 +695,18 @@ def clean_list_numbering(text):
 class DocumentConverter:
     """文档转换器主类"""
     
-    def __init__(self, tone_rules: dict = None):
+    def __init__(self, tone_rules: dict = None, tzinfo=None):
         """初始化文档转换器。
 
         Args:
             tone_rules: 从持久化用户配置注入的语气规则字典。
                 未传入时使用空规则，不在转换器内置默认映射。
+            tzinfo: [TZ] 重名时备用文件名时间戳所用的时区。
+                Web 端传入来访用户所在时区（由浏览器 cookie 提供），这样
+                `xxx_235959.docx` 这种后缀对应用户手表上的时间而不是服务器时间。
+                桌面版（desk/）不传，保持本机时间，行为与改动前完全一致。
         """
+        self.tzinfo = tzinfo
         self.logger = None
         self.stats = {"para": 0, "table": 0, "heading": 0}
         self.source_styles = set()  # 源文档中使用的样式
@@ -5008,7 +5013,8 @@ class DocumentConverter:
             return output_file
 
         base, ext = os.path.splitext(output_file)
-        time_suffix = datetime.now().strftime("_%H%M%S")
+        # [TZ] 用调用方传入的时区（Web=用户本地，桌面=None=本机时间）
+        time_suffix = datetime.now(self.tzinfo).strftime("_%H%M%S")
         candidate = f"{base}{time_suffix}{ext}"
 
         if not os.path.exists(candidate):
@@ -5054,7 +5060,8 @@ class DocumentConverter:
 
                 # 生成新的文件名
                 base, ext = os.path.splitext(output_file)
-                time_suffix = datetime.now().strftime("_%H%M%S")
+                # [TZ] 用调用方传入的时区（Web=用户本地，桌面=None=本机时间）
+                time_suffix = datetime.now(self.tzinfo).strftime("_%H%M%S")
                 current_file = f"{base}{time_suffix}{ext}"
 
                 # 如果新文件名仍冲突，追加序号避免覆盖
