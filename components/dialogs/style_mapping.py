@@ -567,7 +567,11 @@ def show_style_mapping_dialog():
         with lbl[1]:
             st.markdown("**提示语样式**")
         with lbl[2]:
-            st.markdown("**提示语文本**" if hint_type_val == "text" else "**上传提示语图片**")
+            # ⚠️ 必须用控件的**实时**值（session_state 里的 radio 当前选择），
+            # 不能用 hint_type_val（打开对话框时的已保存配置）——
+            # 否则用户切换「文本/图片」后，本行的 label 仍停在打开时的类型。
+            _hint_type_live = st.session_state.get(f"hint_type_{fname}", hint_type_val)
+            st.markdown("**提示语文本**" if _hint_type_live == "text" else "**上传提示语图片**")
         with lbl[3]:
             st.markdown("&nbsp;", unsafe_allow_html=True)
         with lbl[4]:
