@@ -809,7 +809,11 @@ class DocumentConverter:
 
         # 多字祈使词
         multi_map = tr.get("multi_imperative", {}) or {}
-        multi_keys = list(multi_map.keys())
+        # 按词长降序构建交替正则：Python 正则交替按「先列先试」取词，
+        # 若短词排在长词前面（如「投标人」在「投标人需」前），短词会先命中、
+        # 长规则永远轮不到——且这是正则层面的事，后面的重叠消解救不回来。
+        # 故必须保证长词在前，与用户配置顺序无关。
+        multi_keys = sorted(multi_map.keys(), key=len, reverse=True)
         self.multi_imperative_map = multi_map
         self.multi_imperative_regex = (
             re.compile('|'.join(build_word_pattern(w) for w in multi_keys))
@@ -829,7 +833,9 @@ class DocumentConverter:
         bidder_map = tr.get("bidder_terms", {}) or {}
         self.replace_map = bidder_map
         _patterns = []
-        for word in bidder_map.keys():
+        # 同上：长词在前（「投标人需要」>「投标人需」>「投标人」），
+        # 避免用户把短词配在前面时正则先吃掉短词、长规则失效。
+        for word in sorted(bidder_map.keys(), key=len, reverse=True):
             if word.startswith("投标人"):
                 _patterns.append(r'(?<![本])' + re.escape(word) + r'(?![a-zA-Z0-9])')
             else:
@@ -3662,70 +3668,83 @@ class DocumentConverter:
         if not clean_to_full:
             return False
 
-        # 收集所有替换（在 full_text 坐标中）
-        replacements = []
+        # 收集所有候选替换（统一在 full_text 坐标中）
+        # 三类规则各自在**原始文本**上匹配，重叠部分在下面统一消解。
+        candidates = []   # (fs, fe, repl, source)
 
-        def _add_match(clean_start, clean_end, repl_text):
-            """将 clean_text 中的匹配转换为 full_text 坐标并加入替换列表"""
-            if clean_start >= len(clean_to_full):
-                return
-            fs = clean_to_full[clean_start]
-            if clean_end - 1 < len(clean_to_full):
-                fe = clean_to_full[clean_end - 1] + 1
-            else:
-                fe = len(full_text)
-            orig = full_text[fs:fe]
-            if repl_text and repl_text != orig:
-                replacements.append((fs, fe, repl_text))
+        def _map_range(clean_start, clean_end):
+            """clean_text 坐标 -> full_text 坐标；越界返回 None。"""
+            if clean_start >= len(clean_to_full) or clean_end - 1 >= len(clean_to_full):
+                return None
+            return clean_to_full[clean_start], clean_to_full[clean_end - 1] + 1
 
-        # 1. replace_regex: "投标人" -> "本投标人" 等固定替换
-        if self.replace_regex:
-            for m in self.replace_regex.finditer(clean_text):
-                _add_match(m.start(), m.end(), self.replace_map.get(m.group(0), ''))
+        # 1. 投标人称谓：逐词扫描（不能用合并交替正则）
+        # 合并交替正则在每个位置只产出**一个**候选（先列先试），短词先命中后
+        # 长词候选根本不会生成，后面的全局消解无从选起。逐词扫描把每个词的
+        # 匹配都收进候选池，交给 select_non_overlapping 做全局最优选择。
+        if self.replace_map:
+            for word, repl in self.replace_map.items():
+                if word.startswith("投标人"):
+                    pat = re.compile(r'(?<![本])' + re.escape(word) + r'(?![a-zA-Z0-9])')
+                else:
+                    pat = re.compile(build_word_pattern(word))
+                for m in pat.finditer(clean_text):
+                    rng = _map_range(m.start(), m.end())
+                    if rng:
+                        candidates.append((rng[0], rng[1], repl or '', 'bidder'))
 
-        # 2. multi_imperative_regex: 多字祈使词
-        if self.multi_imperative_regex:
-            for m in self.multi_imperative_regex.finditer(clean_text):
-                word = m.group(0)
-                cs, ce = m.start(), m.end()
-                if cs >= len(clean_to_full) or ce - 1 >= len(clean_to_full):
+        # 2. 多字祈使词：同样逐词扫描
+        if self.multi_imperative_map:
+            for word, repl in self.multi_imperative_map.items():
+                if not repl:
                     continue
-                fs = clean_to_full[cs]
-                fe = clean_to_full[ce - 1] + 1
-                if self.is_multi_exception(full_text, fs, fe, word):
-                    continue
-                repl = self.multi_imperative_map.get(word)
-                if repl:
-                    replacements.append((fs, fe, repl))
+                pat = re.compile(build_word_pattern(word))
+                for m in pat.finditer(clean_text):
+                    rng = _map_range(m.start(), m.end())
+                    if not rng:
+                        continue
+                    fs, fe = rng
+                    if self.is_multi_exception(full_text, fs, fe, word):
+                        continue
+                    candidates.append((fs, fe, repl, 'multi'))
 
         # 3. single_imperative_regex: 单字祈使词
         if self.single_imperative_regex:
             for m in self.single_imperative_regex.finditer(clean_text):
-                word = m.group(0)
-                cs, ce = m.start(), m.end()
-                if cs >= len(clean_to_full) or ce - 1 >= len(clean_to_full):
+                rng = _map_range(m.start(), m.end())
+                if not rng:
                     continue
-                fs = clean_to_full[cs]
-                fe = clean_to_full[ce - 1] + 1
+                fs, fe = rng
+                word = m.group(0)
                 if self.is_part_of_exception(full_text, fs, fe, word):
                     continue
                 repl = self.single_replace_map.get(word)
                 if repl:
-                    replacements.append((fs, fe, repl))
+                    candidates.append((fs, fe, repl, 'single'))
 
-        if not replacements:
+        # 丢掉「替换结果与原文本一致」的空操作
+        candidates = [c for c in candidates if c[2] != full_text[c[0]:c[1]]]
+        if not candidates:
             return False
 
-        # 按起始位置降序排列，从后往前执行替换避免偏移问题
-        replacements.sort(key=lambda x: x[0], reverse=True)
+        # 重叠消解：全局最大覆盖的区间选择（common.select_non_overlapping）。
+        # 旧贪心（长匹配优先、同长按起始位置）对同长重叠（如称谓词「投标人需」
+        # 与多字词「需要提供」）会错杀右侧规则，产生「本投标人要提供…」这类残留。
+        # 另注意：交替正则必须长词在前（上面构建处已排序），否则短词在正则层面
+        # 先命中，根本产生不了长候选，消解无从谈起。
+        from common import select_non_overlapping
+        kept = select_non_overlapping(candidates)
 
-        # 在 full_text 上执行所有替换
-        result = full_text
-        for fs, fe, repl in replacements:
-            result = result[:fs] + repl + result[fe:]
-
-        # "将将" -> "将把"（后处理，全局替换）
-        result = result.replace('将将', '将把')
+        # 按原始坐标一次性重建，绝不在已修改的字符串上二次切片。
+        kept.sort(key=lambda x: x[0])
+        pieces = []
+        pos = 0
+        for fs, fe, repl, src in kept:
+            pieces.append(full_text[pos:fs])
+            pieces.append(repl)
+            pos = fe
+        pieces.append(full_text[pos:])
+        result = ''.join(pieces).replace('将将', '将把')
 
         # 按原始字符数比例将 result 分配回各个 run
         total_orig = len(full_text)

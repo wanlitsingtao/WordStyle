@@ -214,14 +214,19 @@ class ToneRulesManager:
     def test_convert(rules: Dict, text: str) -> str:
         """用当前规则集模拟祈使语气转换（用于测试预览）。
 
-        复用 DocumentConverter 的实例级正则构建 + 简化版替换逻辑。
+        与 doc_converter.DocumentConverter.process_paragraph_mood 保持同一口径：
+        三类规则都在**原始文本**上匹配，重叠按「长匹配优先」消解，
+        再按原始坐标一次性重建。旧实现是三遍顺序 sub，会在替换后的新串上
+        二次命中（如「本投标人需」再次命中「投标人需」→「本本投标人」），
+        且例外词判定用的是已替换串的坐标，存在错位。
+
         注意：此方法不处理跨 run / 零宽字符，仅做纯文本级替换，足够用于规则测试。
         """
         rules = ToneRulesManager.normalize_rules(rules)
         if not text:
             return ""
 
-        # 构建正则（复用 doc_converter.build_word_pattern）
+        # 构建正则（复用 doc_converter 的正则构造，保证与真实管线一致）
         multi_map = rules.get("multi_imperative", {})
         single_map = rules.get("single_imperative", {})
         bidder_map = rules.get("bidder_terms", {})
@@ -232,12 +237,16 @@ class ToneRulesManager:
         ying_dui_verbs = rules.get("ying_dui_verbs", [])
 
         def _word_re(words):
-            return re.compile('|'.join(build_word_pattern(w) for w in words)) if words else None
+            # 长词在前：正则交替按「先列先试」取词，短词在前会让长规则永远轮不到
+            # （与 doc_converter._build_tone_regexes 同口径）。
+            ordered = sorted(words, key=len, reverse=True)
+            return re.compile('|'.join(build_word_pattern(w) for w in ordered)) if words else None
 
         bidder_re = None
         if bidder_map:
             patterns = []
-            for w in bidder_map:
+            # 同上：长词在前，避免用户配置顺序影响匹配结果
+            for w in sorted(bidder_map, key=len, reverse=True):
                 if w.startswith("投标人"):
                     patterns.append(r'(?<![本])' + re.escape(w) + r'(?![a-zA-Z0-9])')
                 else:
@@ -287,30 +296,55 @@ class ToneRulesManager:
                     pos = sub.find(exc_word, pos + 1)
             return False
 
-        result = text
-
-        # 1. 投标人称谓
-        if bidder_re:
-            result = bidder_re.sub(lambda m: bidder_map.get(m.group(0), m.group(0)), result)
-        # 2. 多字祈使词
-        if multi_re:
-            def _multi_repl(m):
-                word = m.group(0)
-                if is_multi_exc(result, m.start(), m.end(), word):
-                    return word
-                return multi_map.get(word, word)
-            result = multi_re.sub(_multi_repl, result)
-        # 3. 单字祈使词
+        # 1) 收集：三类规则各自在原始 text 上匹配
+        # 称谓词 / 多字词逐词扫描 —— 合并交替正则在每个位置只产出一个候选，
+        # 短词先命中会让长词候选缺失，全局消解无从选起（与 doc_converter 同口径）。
+        candidates = []   # (start, end, repl, source)
+        if bidder_map:
+            for w, repl in bidder_map.items():
+                if not repl:
+                    continue
+                if w.startswith("投标人"):
+                    pat = re.compile(r'(?<![本])' + re.escape(w) + r'(?![a-zA-Z0-9])')
+                else:
+                    pat = re.compile(build_word_pattern(w))
+                for m in pat.finditer(text):
+                    candidates.append((m.start(), m.end(), repl, 'bidder'))
+        if multi_map:
+            for w, repl in multi_map.items():
+                if not repl:
+                    continue
+                pat = re.compile(build_word_pattern(w))
+                for m in pat.finditer(text):
+                    if is_multi_exc(text, m.start(), m.end(), w):
+                        continue
+                    candidates.append((m.start(), m.end(), repl, 'multi'))
         if single_re:
-            def _single_repl(m):
+            for m in single_re.finditer(text):
                 word = m.group(0)
-                if is_single_exc(result, m.start(), m.end(), word):
-                    return word
-                return single_map.get(word, word)
-            result = single_re.sub(_single_repl, result)
+                if is_single_exc(text, m.start(), m.end(), word):
+                    continue
+                candidates.append((m.start(), m.end(),
+                                   single_map.get(word, word), 'single'))
 
-        result = result.replace('将将', '将把')
-        return result
+        candidates = [c for c in candidates if c[2] != text[c[0]:c[1]]]
+        if not candidates:
+            return text
+
+        # 2) 重叠消解：全局最大覆盖的区间选择（与 doc_converter 同口径）
+        from common import select_non_overlapping
+        kept = select_non_overlapping(candidates)
+
+        # 3) 按原始坐标一次性重建
+        kept.sort(key=lambda x: x[0])
+        pieces = []
+        pos = 0
+        for s, e, repl, src in kept:
+            pieces.append(text[pos:s])
+            pieces.append(repl)
+            pos = e
+        pieces.append(text[pos:])
+        return ''.join(pieces).replace('将将', '将把')
 
     # ==================== 导入 / 导出 ====================
 
