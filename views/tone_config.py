@@ -19,16 +19,33 @@ TEST_RESULT_PLACEHOLDER = "点击「测试转换」后在此显示结果"
 
 
 def _ensure_rules_loaded():
-    """确保会话中存在工作副本规则（首次进入时从用户数据加载）。"""
-    if app_state.get_tone_rules() is None:
+    """确保会话中存在工作副本规则；跨页面重进时以数据库最新规则校准。
+
+    [2026-11-20 Bug #026] 旧实现只在 ``tone_rules is None`` 时读一次库，
+    此后一直用会话副本；而编辑器的输入快照又是「首次进入时固化一次」。
+    用户保存新规则后切到转换页再回来，widget 状态被清理，表格按旧快照重建，
+    刚保存的规则就"不见了"（会话副本还会被旧内容污染，再点保存会写没库里的值）。
+
+    判定口径：
+    - widget 状态还在、或有未保存修改（dirty）= 用户正在本页编辑 → 保留副本，
+      绝不能用库里的旧值覆盖输入（含导入 JSON 后尚未保存的规则）；
+    - widget 状态已被清（页面切换回来 / 首次进入）且无未保存修改 = 新挂载
+      → 用库里最新规则，并同步编辑器输入快照。
+    """
+    from components.tone_rules import editor_state_active, sync_editor_snapshots
+
+    cached = app_state.get_tone_rules()
+    if cached is None or (not editor_state_active() and not app_state.get_tone_rules_dirty()):
+        # 只有新挂载才读库：同一页面内编辑 / 导入未保存时不碰数据库。
         user_id = app_state.get_user_id()
         if user_id:
             from data_manager import get_tone_rules
-            rules = get_tone_rules(user_id)
+            fresh = get_tone_rules(user_id)
         else:
             from tone_rules_manager import ToneRulesManager
-            rules = ToneRulesManager.default_rules()
-        app_state.set_tone_rules(rules)
+            fresh = ToneRulesManager.default_rules()
+        app_state.set_tone_rules(fresh)
+        sync_editor_snapshots(fresh)
     return app_state.get_tone_rules()
 
 
@@ -87,7 +104,10 @@ def render_tone_config_page():
     """语气配置页入口（供 st.navigation 调用）。"""
     from tone_rules_manager import ToneRulesManager
     from components.sidebar import render_sidebar
-    from components.tone_rules import render_tone_rules_editor, clear_tone_editor_state
+    from components.tone_rules import (
+        render_tone_rules_editor, clear_tone_editor_state, collect_editor_rules,
+        sync_editor_snapshots,
+    )
 
     render_sidebar("tone_config")
 
@@ -148,6 +168,9 @@ def render_tone_config_page():
 
     # ===== 2. 编辑区（@st.fragment，局部刷新）=====
     rules = render_tone_rules_editor(rules)
+    # 以控件当前输出为准：@st.fragment 在整页 rerun 时可能不重跑，
+    # 不能只信上一轮留下的工作副本（否则最后一格的输入会被旧值覆盖）。
+    rules = collect_editor_rules(rules)
     app_state.set_tone_rules(rules)
 
     # ===== 3. 转换测试区 =====
@@ -161,6 +184,9 @@ def render_tone_config_page():
         getattr(action_status, flash[0])(flash[1])
 
     if save_clicked:
+        # 再取一次控件最新输出，确保「保存全部」拿到的就是表格里当前的内容
+        rules = collect_editor_rules(rules)
+        app_state.set_tone_rules(rules)
         ok, msg = ToneRulesManager.validate_rules(rules)
         if not ok:
             action_status.error(f"❌ 校验失败：{msg}")
@@ -171,8 +197,12 @@ def render_tone_config_page():
             else:
                 ok2, msg2 = ToneRulesManager.save(user_id, rules)
                 if ok2:
-                    app_state.set_tone_rules(ToneRulesManager.normalize_rules(rules))
+                    normalized = ToneRulesManager.normalize_rules(rules)
+                    app_state.set_tone_rules(normalized)
                     app_state.set_tone_rules_dirty(False)
+                    # [2026-11-20 Bug #026] 保存成功后同步输入快照：跨页面重进时
+                    # widget 状态被清理，表格会按这份最新规则重建，不再显示旧快照。
+                    sync_editor_snapshots(normalized)
                     action_status.success(f"✅ {msg2}，下次转换生效。")
                 else:
                     action_status.error(f"❌ {msg2}")
